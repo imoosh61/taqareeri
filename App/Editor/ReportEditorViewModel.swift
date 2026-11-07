@@ -1,0 +1,264 @@
+import Combine
+import Foundation
+import UIKit
+
+struct BodySection: Identifiable, Equatable {
+    let id: Int
+    let range: NSRange
+    let preview: String
+}
+
+/// Owns one report while it is being edited: live pagination, autosave, images, export.
+@MainActor
+final class ReportEditorViewModel: ObservableObject {
+    @Published var report: Report
+    @Published private(set) var pagination: PaginationResult
+    @Published private(set) var images: RenderImages
+    @Published private(set) var cursorBodyPage = 0
+    /// Bumped whenever the body text is replaced from outside the text view.
+    @Published private(set) var bodyRevision = 0
+    @Published var logoRemovalMode: LogoBackgroundMode = .smart
+    @Published private(set) var isProcessingImage = false
+    @Published var errorMessage: String?
+
+    let richText = RichTextController()
+    private(set) var bodyText: NSAttributedString
+
+    private let store: ReportStore
+    private var appliedTextStyle: TextStyleSettings
+    private var originalLogoData: Data?
+    private var cursorLocation = 0
+    private var hasUnsavedChanges = false
+    private let bodyChanged = PassthroughSubject<Void, Never>()
+    private var cancellables = Set<AnyCancellable>()
+
+    init(report: Report, store: ReportStore) {
+        self.report = report
+        self.store = store
+        self.appliedTextStyle = report.textStyle
+        let text = BodyStyler.attributedString(from: report.body, settings: report.textStyle)
+        self.bodyText = text
+        self.images = RenderImages(report: report)
+        self.pagination = Paginator.paginate(text, spec: PageLayoutSpec(report: report), hasCover: report.cover.isEnabled)
+        configureRichText()
+        bindPipelines()
+    }
+
+    // MARK: - Derived
+
+    var renderContext: PageRenderContext {
+        PageRenderContext(report: report, pagination: pagination, images: images)
+    }
+
+    var cursorPhysicalPage: Int { pagination.physicalPage(forBodyPage: cursorBodyPage) }
+    var firstBodyPhysicalPage: Int { pagination.firstBodyPhysicalPage }
+
+    var typingAttributes: [NSAttributedString.Key: Any] {
+        BodyStyler.typingAttributes(report.textStyle)
+    }
+
+    func pageLabel(forPhysicalPage page: Int) -> String {
+        ArabicFormat.pageLabel(page + 1, of: pagination.totalPages, report.page.numerals)
+    }
+
+    // MARK: - Wiring
+
+    private func configureRichText() {
+        richText.settingsProvider = { [weak self] in self?.report.textStyle ?? TextStyleSettings() }
+        richText.onTextChanged = { [weak self] text in self?.bodyDidChange(text) }
+        richText.onSelectionChanged = { [weak self] location in self?.selectionDidChange(location) }
+    }
+
+    private func bindPipelines() {
+        // `$report` emits the new value *before* `report` is updated.
+        $report
+            .dropFirst()
+            .sink { [weak self] newValue in self?.reportWillChange(to: newValue) }
+            .store(in: &cancellables)
+
+        let anyChange = Publishers.Merge($report.dropFirst().map { _ in () }, bodyChanged)
+
+        anyChange
+            .debounce(for: .milliseconds(250), scheduler: RunLoop.main)
+            .sink { [weak self] _ in self?.repaginate() }
+            .store(in: &cancellables)
+
+        anyChange
+            .debounce(for: .seconds(1), scheduler: RunLoop.main)
+            .sink { [weak self] _ in self?.saveNow() }
+            .store(in: &cancellables)
+    }
+
+    private func reportWillChange(to newValue: Report) {
+        hasUnsavedChanges = true
+
+        if newValue.textStyle != appliedTextStyle {
+            bodyText = BodyStyler.restyle(bodyText, from: appliedTextStyle, to: newValue.textStyle)
+            appliedTextStyle = newValue.textStyle
+            bodyRevision += 1
+        }
+
+        if newValue.header.logoPNG != report.header.logoPNG
+            || newValue.footer.signaturePNG != report.footer.signaturePNG
+            || newValue.footer.stampPNG != report.footer.stampPNG {
+            images = RenderImages(report: newValue)
+        }
+    }
+
+    private func bodyDidChange(_ text: NSAttributedString) {
+        bodyText = text
+        hasUnsavedChanges = true
+        bodyChanged.send()
+    }
+
+    private func selectionDidChange(_ location: Int) {
+        cursorLocation = location
+        updateCursorPage()
+    }
+
+    private func updateCursorPage() {
+        let page = min(pagination.bodyPage(forCharacterAt: cursorLocation), pagination.lastBodyPage)
+        if page != cursorBodyPage { cursorBodyPage = page }
+    }
+
+    func repaginate() {
+        pagination = Paginator.paginate(bodyText, spec: PageLayoutSpec(report: report), hasCover: report.cover.isEnabled)
+        updateCursorPage()
+    }
+
+    // MARK: - Persistence
+
+    func saveNow() {
+        guard hasUnsavedChanges else { return }
+        var snapshot = report
+        snapshot.body = BodyStyler.document(from: bodyText, settings: report.textStyle)
+        snapshot.updatedAt = Date()
+        if store.save(snapshot) {
+            hasUnsavedChanges = false
+        } else {
+            errorMessage = store.errorMessage
+        }
+    }
+
+    // MARK: - Images
+
+    func importLogo(_ data: Data) async {
+        originalLogoData = data
+        await processLogo()
+    }
+
+    func reprocessLogo() async {
+        await processLogo()
+    }
+
+    private func processLogo() async {
+        guard let source = originalLogoData ?? report.header.logoPNG else { return }
+        if let processed = await processImage(source, mode: logoRemovalMode) {
+            report.header.logoPNG = processed
+        }
+    }
+
+    func removeLogo() {
+        originalLogoData = nil
+        report.header.logoPNG = nil
+    }
+
+    func setSignature(png: Data) {
+        report.footer.signaturePNG = png
+    }
+
+    func importSignature(_ data: Data) async {
+        if let processed = await processImage(data, mode: .smart) {
+            report.footer.signaturePNG = processed
+        }
+    }
+
+    func importStamp(_ data: Data) async {
+        if let processed = await processImage(data, mode: .smart) {
+            report.footer.stampPNG = processed
+        }
+    }
+
+    private func processImage(_ data: Data, mode: LogoBackgroundMode) async -> Data? {
+        isProcessingImage = true
+        defer { isProcessingImage = false }
+        do {
+            return try await ImageProcessor.process(data, mode: mode)
+        } catch {
+            errorMessage = error.localizedDescription
+            return nil
+        }
+    }
+
+    // MARK: - Templates
+
+    func makeTemplate(named name: String) -> HeaderTemplate {
+        let trimmed = name.trimmed
+        let fallback = report.header.ministry.trimmed.isEmpty ? "قالب" : report.header.ministry.trimmed
+        return HeaderTemplate(name: trimmed.isEmpty ? fallback : trimmed, header: report.header, frame: report.frame)
+    }
+
+    func applyTemplate(_ template: HeaderTemplate) {
+        var header = template.header
+        header.date = report.header.date
+        header.referenceNumber = report.header.referenceNumber
+        header.attachments = report.header.attachments
+        originalLogoData = nil
+        report.header = header
+        report.frame = template.frame
+    }
+
+    // MARK: - Sections (content between page breaks)
+
+    func sections() -> [BodySection] {
+        let text = bodyText.string as NSString
+        var result: [BodySection] = []
+        var start = 0
+
+        func section(_ id: Int, _ range: NSRange) -> BodySection {
+            let preview = text.substring(with: range)
+                .replacingOccurrences(of: "\n", with: " ")
+                .trimmed
+            return BodySection(id: id, range: range, preview: String(preview.prefix(120)))
+        }
+
+        for index in 0..<text.length where text.character(at: index) == BodyDocument.pageBreakUnit {
+            let item = section(result.count, NSRange(location: start, length: index - start))
+            result.append(item)
+            start = index + 1
+        }
+        let last = section(result.count, NSRange(location: start, length: text.length - start))
+        result.append(last)
+        return result
+    }
+
+    func reorderSections(_ order: [Int]) {
+        let current = sections()
+        guard order.count == current.count, Set(order) == Set(current.indices), order != Array(current.indices) else { return }
+
+        let output = NSMutableAttributedString()
+        for (position, index) in order.enumerated() {
+            if position > 0 {
+                output.append(NSAttributedString(string: BodyDocument.pageBreak, attributes: typingAttributes))
+            }
+            output.append(bodyText.attributedSubstring(from: current[index].range))
+        }
+        bodyText = output
+        bodyRevision += 1
+        hasUnsavedChanges = true
+        bodyChanged.send()
+    }
+
+    // MARK: - Export
+
+    func exportPDF() -> URL? {
+        repaginate()
+        saveNow()
+        do {
+            return try PDFExporter.export(renderContext)
+        } catch {
+            errorMessage = "تعذر إنشاء ملف PDF: \(error.localizedDescription)"
+            return nil
+        }
+    }
+}
