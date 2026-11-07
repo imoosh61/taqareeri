@@ -169,6 +169,22 @@ struct FooterSettings: Codable, Equatable {
     }
 }
 
+/// Optional opening block addressed to a recipient, e.g.
+///   سعادة مدير إدارة المساجد بالحرث
+///   الأستاذ/ فلان الفلاني ………………… حفظه الله
+///   السلام عليكم ورحمة الله وبركاته، وبعد:
+struct AddresseeSettings: Codable, Equatable {
+    var isEnabled = false
+    var recipientTitle = ""
+    var recipientName = ""
+    var showHonorific = true
+    var honorific = "حفظه الله"
+    var showGreeting = true
+    var greeting = "السلام عليكم ورحمة الله وبركاته، وبعد:"
+
+    static let honorificSuggestions = ["حفظه الله", "حفظها الله", "وفقه الله", "وفقها الله", "سلمه الله", "المحترم", "المحترمة"]
+}
+
 // MARK: - Report
 
 struct Report: Identifiable, Codable, Equatable {
@@ -183,6 +199,13 @@ struct Report: Identifiable, Codable, Equatable {
     var cover = CoverSettings()
     var footer = FooterSettings()
     var body = BodyDocument()
+    /// Optional so reports saved by earlier versions (without this key) still decode.
+    var addresseeStorage: AddresseeSettings?
+
+    var addressee: AddresseeSettings {
+        get { addresseeStorage ?? AddresseeSettings() }
+        set { addresseeStorage = newValue }
+    }
 }
 
 // MARK: - Header template

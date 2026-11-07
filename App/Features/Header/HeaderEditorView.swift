@@ -65,6 +65,8 @@ struct HeaderEditorView: View {
                 Text(ArabicFormat.headerDateLines(vm.report.header, numerals: vm.report.page.numerals).joined(separator: "\n"))
             }
 
+            addresseeSection
+
             Section {
                 Toggle("صفحة غلاف رسمية", isOn: $vm.report.cover.isEnabled)
                 if vm.report.cover.isEnabled {
@@ -134,6 +136,39 @@ struct HeaderEditorView: View {
                 }
                 logoItem = nil
             }
+        }
+    }
+
+    private var addresseeSection: some View {
+        Section {
+            Toggle("إضافة جهة موجَّه إليها", isOn: $vm.report.addressee.isEnabled)
+            if vm.report.addressee.isEnabled {
+                TextField("المخاطَب (مثال: سعادة مدير إدارة المساجد بالحرث)", text: $vm.report.addressee.recipientTitle, axis: .vertical)
+                TextField("اسم المسؤول (مثال: الأستاذ/ ...)", text: $vm.report.addressee.recipientName)
+
+                Toggle("إظهار عبارة التبجيل في يسار السطر", isOn: $vm.report.addressee.showHonorific)
+                if vm.report.addressee.showHonorific {
+                    HStack {
+                        TextField("العبارة", text: $vm.report.addressee.honorific)
+                        Menu {
+                            ForEach(AddresseeSettings.honorificSuggestions, id: \.self) { phrase in
+                                Button(phrase) { vm.report.addressee.honorific = phrase }
+                            }
+                        } label: {
+                            Image(systemName: "chevron.down.circle")
+                        }
+                    }
+                }
+
+                Toggle("إظهار التحية", isOn: $vm.report.addressee.showGreeting)
+                if vm.report.addressee.showGreeting {
+                    TextField("التحية", text: $vm.report.addressee.greeting, axis: .vertical)
+                }
+            }
+        } header: {
+            Text("الموجَّه إليه (اختياري)")
+        } footer: {
+            Text("يظهر أعلى أول صفحة قبل نص التقرير: المخاطَب، ثم الاسم يميناً و«حفظه الله» في يسار السطر نفسه، ثم التحية.")
         }
     }
 

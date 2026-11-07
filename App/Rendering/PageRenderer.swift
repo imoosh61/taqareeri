@@ -78,6 +78,10 @@ enum PageRenderer {
             drawHeader(report: report, logo: render.images.logo, in: spec.headerRect, accent: accent)
         }
 
+        if bodyPage == 0 && spec.addresseeHeight > 0 {
+            drawAddressee(report: report, in: spec.addresseeRect)
+        }
+
         let bodyRect = spec.bodyRect(bodyPage: bodyPage)
         if let range = pagination.glyphRange(forBodyPage: bodyPage), range.length > 0 {
             pagination.layoutManager.drawBackground(forGlyphRange: range, at: bodyRect.origin)
@@ -148,6 +152,52 @@ enum PageRenderer {
         thin.addLine(to: CGPoint(x: rect.maxX, y: lineY + 3.5))
         thin.lineWidth = 0.6
         thin.stroke()
+    }
+
+    // MARK: - Addressee
+
+    /// Recipient title (right), then name on the right with the honorific at the far left of the
+    /// same line, then the optional greeting centered.
+    private static func drawAddressee(report: Report, in rect: CGRect) {
+        let addressee = report.addressee
+        let fontName = report.textStyle.fontName
+        let size = CGFloat(min(max(report.textStyle.fontSize, 11), 24))
+        let lineHeight = PageLayoutSpec.addresseeLineHeight(fontSize: report.textStyle.fontSize)
+        let bold = BodyStyler.font(name: fontName, size: size, bold: true)
+        let regular = BodyStyler.font(name: fontName, size: size, bold: false)
+        var y = rect.minY
+
+        func line() -> CGRect { CGRect(x: rect.minX, y: y, width: rect.width, height: lineHeight) }
+
+        if !addressee.recipientTitle.trimmed.isEmpty {
+            TextDraw.draw([addressee.recipientTitle], in: line(), font: bold, color: .black, alignment: .right)
+            y += lineHeight
+        }
+
+        let showHonorific = addressee.showHonorific && !addressee.honorific.trimmed.isEmpty
+        if !addressee.recipientName.trimmed.isEmpty || showHonorific {
+            let row = line()
+            if showHonorific {
+                let honorificWidth = min(rect.width * 0.35, 160)
+                TextDraw.draw(
+                    [addressee.honorific],
+                    in: CGRect(x: row.minX, y: row.minY, width: honorificWidth, height: row.height),
+                    font: bold, color: .black, alignment: .left
+                )
+                TextDraw.draw(
+                    [addressee.recipientName],
+                    in: CGRect(x: row.minX + honorificWidth + 12, y: row.minY, width: row.width - honorificWidth - 12, height: row.height),
+                    font: bold, color: .black, alignment: .right
+                )
+            } else {
+                TextDraw.draw([addressee.recipientName], in: row, font: bold, color: .black, alignment: .right)
+            }
+            y += lineHeight
+        }
+
+        if addressee.showGreeting && !addressee.greeting.trimmed.isEmpty {
+            TextDraw.draw([addressee.greeting], in: line(), font: regular, color: .black, alignment: .center)
+        }
     }
 
     // MARK: - Cover
