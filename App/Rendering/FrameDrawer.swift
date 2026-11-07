@@ -3,7 +3,7 @@ import UIKit
 /// Vector page borders drawn with Core Graphics (stay sharp in the exported PDF).
 @MainActor
 enum FrameDrawer {
-    static func draw(_ style: FrameStyle, color: UIColor, in page: CGRect, context ctx: CGContext) {
+    static func draw(_ style: FrameStyle, color: UIColor, image: UIImage? = nil, in page: CGRect, context ctx: CGContext) {
         guard style != .none else { return }
         ctx.saveGState()
         defer { ctx.restoreGState() }
@@ -14,6 +14,30 @@ enum FrameDrawer {
         switch style {
         case .none:
             break
+        case .customImage:
+            if let image {
+                UIGraphicsPushContext(ctx)
+                image.draw(in: page)
+                UIGraphicsPopContext()
+            } else {
+                ctx.stroke(page.insetBy(dx: 24, dy: 24), width: 1.2)
+            }
+        case .najdi:
+            OrnateFrames.najdi(page, ctx)
+        case .interlace:
+            OrnateFrames.interlace(page, ctx, color: color)
+        case .zellige:
+            OrnateFrames.zellige(page, ctx, color: color)
+        case .arches:
+            OrnateFrames.arches(page, ctx)
+        case .arabesque:
+            OrnateFrames.arabesque(page, ctx, color: color)
+        case .floral:
+            OrnateFrames.floral(page, ctx, color: color)
+        case .goldCorners:
+            OrnateFrames.goldCorners(page, ctx, color: color)
+        case .royal:
+            OrnateFrames.royal(page, ctx, color: color)
         case .single:
             ctx.stroke(page.insetBy(dx: 24, dy: 24), width: 1.2)
         case .double:
@@ -197,7 +221,7 @@ enum FrameDrawer {
         return points
     }
 
-    private static func diamond(center: CGPoint, radius: CGFloat) -> CGPath {
+    static func diamond(center: CGPoint, radius: CGFloat) -> CGPath {
         let path = CGMutablePath()
         path.move(to: CGPoint(x: center.x, y: center.y - radius))
         path.addLine(to: CGPoint(x: center.x + radius, y: center.y))

@@ -98,9 +98,7 @@ final class ReportEditorViewModel: ObservableObject {
             bodyRevision += 1
         }
 
-        if newValue.header.logoPNG != report.header.logoPNG
-            || newValue.footer.signaturePNG != report.footer.signaturePNG
-            || newValue.footer.stampPNG != report.footer.stampPNG {
+        if RenderImages.sources(of: newValue) != RenderImages.sources(of: report) {
             images = RenderImages(report: newValue)
         }
     }
@@ -163,14 +161,49 @@ final class ReportEditorViewModel: ObservableObject {
         report.header.logoPNG = nil
     }
 
-    func setSignature(png: Data) {
-        report.footer.signaturePNG = png
+    // MARK: - Employees
+
+    func addEmployee() {
+        report.footer.employees.append(Employee())
+        report.footer.showSignatureBlock = true
     }
 
-    func importSignature(_ data: Data) async {
+    func removeEmployee(_ id: UUID) {
+        report.footer.employees.removeAll { $0.id == id }
+    }
+
+    func moveEmployees(from source: IndexSet, to destination: Int) {
+        report.footer.employees.move(fromOffsets: source, toOffset: destination)
+    }
+
+    func setSignature(png: Data, for employeeID: UUID) {
+        guard let index = report.footer.employees.firstIndex(where: { $0.id == employeeID }) else { return }
+        report.footer.employees[index].signaturePNG = png
+    }
+
+    func removeSignature(for employeeID: UUID) {
+        guard let index = report.footer.employees.firstIndex(where: { $0.id == employeeID }) else { return }
+        report.footer.employees[index].signaturePNG = nil
+    }
+
+    func importSignature(_ data: Data, for employeeID: UUID) async {
         if let processed = await processImage(data, mode: .smart) {
-            report.footer.signaturePNG = processed
+            setSignature(png: processed, for: employeeID)
         }
+    }
+
+    // MARK: - Custom frame
+
+    func importFrameImage(_ data: Data) async {
+        if let processed = await processImage(data, mode: .allWhite, maxPixelSize: 2400, trim: false) {
+            report.frame.customFramePNG = processed
+            report.frame.style = .customImage
+        }
+    }
+
+    func removeFrameImage() {
+        report.frame.customFramePNG = nil
+        if report.frame.style == .customImage { report.frame.style = .double }
     }
 
     func importStamp(_ data: Data) async {
@@ -179,11 +212,11 @@ final class ReportEditorViewModel: ObservableObject {
         }
     }
 
-    private func processImage(_ data: Data, mode: LogoBackgroundMode) async -> Data? {
+    private func processImage(_ data: Data, mode: LogoBackgroundMode, maxPixelSize: Int = 1000, trim: Bool = true) async -> Data? {
         isProcessingImage = true
         defer { isProcessingImage = false }
         do {
-            return try await ImageProcessor.process(data, mode: mode)
+            return try await ImageProcessor.process(data, mode: mode, maxPixelSize: maxPixelSize, trim: trim)
         } catch {
             errorMessage = error.localizedDescription
             return nil

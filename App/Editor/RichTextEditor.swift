@@ -9,6 +9,7 @@ struct RichTextEditor: UIViewRepresentable {
     let content: NSAttributedString
     let revision: Int
     let typingAttributes: [NSAttributedString.Key: Any]
+    let tint: UIColor
 
     func makeCoordinator() -> Coordinator {
         Coordinator(controller: controller)
@@ -20,7 +21,7 @@ struct RichTextEditor: UIViewRepresentable {
         textView.overrideUserInterfaceStyle = .light
         textView.backgroundColor = .white
         textView.textColor = .black
-        textView.tintColor = UIColor(hex: Theme.accentHex)
+        textView.tintColor = tint
         textView.textContainerInset = UIEdgeInsets(top: 20, left: 16, bottom: 48, right: 16)
         textView.semanticContentAttribute = .forceRightToLeft
         textView.allowsEditingTextAttributes = true
@@ -36,6 +37,7 @@ struct RichTextEditor: UIViewRepresentable {
 
     func updateUIView(_ textView: UITextView, context: Context) {
         controller.attach(textView)
+        textView.tintColor = tint
         guard context.coordinator.appliedRevision != revision else { return }
         context.coordinator.appliedRevision = revision
 

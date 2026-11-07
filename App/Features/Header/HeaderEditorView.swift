@@ -11,6 +11,7 @@ struct HeaderEditorView: View {
     @State private var showSaveTemplate = false
     @State private var templateName = ""
     @State private var confirmation: String?
+    @State private var zoomPage: PageRef?
 
     var body: some View {
         Form {
@@ -19,6 +20,7 @@ struct HeaderEditorView: View {
                     .frame(height: 280)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 8)
+                    .onTapGesture { zoomPage = PageRef(id: vm.firstBodyPhysicalPage) }
             }
             .listRowBackground(Color.clear)
 
@@ -118,6 +120,9 @@ struct HeaderEditorView: View {
             isPresented: Binding(get: { confirmation != nil }, set: { if !$0 { confirmation = nil } })
         ) {
             Button("حسناً", role: .cancel) {}
+        }
+        .sheet(item: $zoomPage) { ref in
+            PageZoomSheet(vm: vm, initialPage: ref.id)
         }
         .onChange(of: logoItem) { _, item in
             guard let item else { return }

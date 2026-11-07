@@ -25,7 +25,19 @@ struct PageLayoutSpec {
         headerEnabled = report.header.isEnabled
         headerOnAllPages = report.header.placement == .allPages
         reservesFooter = report.page.showPageNumbers
-        signatureBlockHeight = report.footer.showSignatureBlock ? 132 : 0
+        signatureBlockHeight = report.footer.showSignatureBlock ? Self.signatureHeight(for: report.footer) : 0
+    }
+
+    static let employeeRowHeight: CGFloat = 112
+
+    /// One row per two employees (right & left); a single employee is centered.
+    static func signatureHeight(for footer: FooterSettings) -> CGFloat {
+        let count = footer.employees.count
+        let rows = count == 0 ? 0 : (count + 1) / 2
+        let employeesHeight = CGFloat(rows) * employeeRowHeight
+        let stampHeight: CGFloat = footer.stampPNG == nil ? 0 : 110
+        let height = max(employeesHeight, stampHeight)
+        return height > 0 ? height + 8 : 0
     }
 
     var footerHeight: CGFloat { reservesFooter ? 26 : 0 }

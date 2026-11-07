@@ -19,6 +19,7 @@ struct ReportEditorView: View {
     @StateObject private var vm: ReportEditorViewModel
     @State private var tab: EditorTab
     @State private var shareItem: IdentifiedURL?
+    @State private var zoomPage: PageRef?
     @Environment(\.scenePhase) private var scenePhase
 
     init(report: Report, store: ReportStore) {
@@ -50,7 +51,14 @@ struct ReportEditorView: View {
         .navigationTitle(vm.report.title.trimmed.isEmpty ? "تقرير" : vm.report.title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
+            ToolbarItemGroup(placement: .primaryAction) {
+                Button {
+                    KeyboardHelper.dismiss()
+                    vm.repaginate()
+                    zoomPage = PageRef(id: tab == .writing ? vm.cursorPhysicalPage : 0)
+                } label: {
+                    Label("معاينة", systemImage: "eye")
+                }
                 Button(action: export) {
                     Label("تصدير PDF", systemImage: "square.and.arrow.up")
                 }
@@ -58,6 +66,9 @@ struct ReportEditorView: View {
         }
         .sheet(item: $shareItem) { item in
             ShareSheet(items: [item.url])
+        }
+        .sheet(item: $zoomPage) { ref in
+            PageZoomSheet(vm: vm, initialPage: ref.id)
         }
         .alert(
             "تنبيه",

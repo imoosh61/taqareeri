@@ -3,15 +3,27 @@ import UIKit
 /// Decoded images used while drawing (decoded once per change, not per page draw).
 struct RenderImages {
     var logo: UIImage?
-    var signature: UIImage?
     var stamp: UIImage?
+    var frame: UIImage?
+    var signatures: [UUID: UIImage] = [:]
 
     init() {}
 
     init(report: Report) {
         logo = report.header.logoPNG.flatMap { UIImage(data: $0) }
-        signature = report.footer.signaturePNG.flatMap { UIImage(data: $0) }
         stamp = report.footer.stampPNG.flatMap { UIImage(data: $0) }
+        frame = report.frame.customFramePNG.flatMap { UIImage(data: $0) }
+        for employee in report.footer.employees {
+            if let data = employee.signaturePNG, let image = UIImage(data: data) {
+                signatures[employee.id] = image
+            }
+        }
+    }
+
+    /// The image-bearing parts of a report; when unchanged, decoded images can be reused.
+    static func sources(of report: Report) -> [Data?] {
+        [report.header.logoPNG, report.footer.stampPNG, report.frame.customFramePNG]
+            + report.footer.employees.map(\.signaturePNG)
     }
 }
 
@@ -44,7 +56,7 @@ enum PageRenderer {
         let kind = pagination.kind(ofPage: page)
         let isCover = kind == .cover
         if !isCover || report.frame.applyToCover {
-            FrameDrawer.draw(report.frame.style, color: accent, in: pageRect, context: ctx)
+            FrameDrawer.draw(report.frame.style, color: accent, image: render.images.frame, in: pageRect, context: ctx)
         }
 
         switch kind {
@@ -216,31 +228,66 @@ enum PageRenderer {
 
     // MARK: - Signature & stamp
 
+    /// Employees: one → centered; several → two per row, first on the right (RTL), then left;
+    /// an odd last employee is centered on its own row. The stamp sits between the columns.
     private static func drawSignatureBlock(report: Report, images: RenderImages, in rect: CGRect) {
-        let footer = report.footer
-        let blockWidth: CGFloat = 210
-        // Signature block sits on the left (end of an RTL line), stamp beside it.
-        let block = CGRect(x: rect.minX, y: rect.minY, width: blockWidth, height: rect.height)
+        let employees = report.footer.employees
+        let rowHeight = PageLayoutSpec.employeeRowHeight
+        let cellWidth = min(220, rect.width * 0.42)
+        let fontName = report.textStyle.fontName
+        var firstCell: CGRect?
 
-        let names = [footer.signerTitle, footer.signerName]
+        for (index, employee) in employees.enumerated() {
+            let row = index / 2
+            let y = rect.minY + CGFloat(row) * rowHeight
+            let isAloneInRow = employees.count == 1 || (index == employees.count - 1 && index.isMultiple(of: 2))
+            let x: CGFloat
+            if isAloneInRow {
+                x = rect.midX - cellWidth / 2
+            } else if index.isMultiple(of: 2) {
+                x = rect.maxX - cellWidth   // right
+            } else {
+                x = rect.minX               // left
+            }
+            let cell = CGRect(x: x, y: y, width: cellWidth, height: rowHeight)
+            if index == 0 { firstCell = cell }
+            drawEmployee(employee, signature: images.signatures[employee.id], in: cell, fontName: fontName)
+        }
+
+        guard let stamp = images.stamp else { return }
+        let side: CGFloat = 100
+        let center: CGPoint
+        if employees.count >= 2 {
+            center = CGPoint(x: rect.midX, y: rect.minY + rowHeight / 2 + 4)
+        } else if let cell = firstCell {
+            center = CGPoint(x: max(rect.minX + side / 2, cell.minX - side / 2 - 10), y: cell.midY)
+        } else {
+            center = CGPoint(x: rect.midX, y: rect.minY + side / 2 + 4)
+        }
+        let box = CGRect(x: center.x - side / 2, y: center.y - side / 2, width: side, height: side)
+        stamp.draw(in: Geometry.aspectFit(stamp.size, in: box), blendMode: .multiply, alpha: 0.92)
+    }
+
+    private static func drawEmployee(_ employee: Employee, signature: UIImage?, in cell: CGRect, fontName: String) {
         TextDraw.draw(
-            names,
-            in: CGRect(x: block.minX, y: block.minY, width: blockWidth, height: 46),
-            font: BodyStyler.font(name: report.textStyle.fontName, size: 13, bold: true),
+            [employee.label],
+            in: CGRect(x: cell.minX, y: cell.minY, width: cell.width, height: 22),
+            font: BodyStyler.font(name: fontName, size: 13, bold: true),
             color: .black,
             alignment: .center,
             verticallyCentered: false
         )
-
-        if let signature = images.signature {
-            let box = CGRect(x: block.minX + 20, y: block.minY + 48, width: blockWidth - 40, height: rect.height - 52)
+        TextDraw.draw(
+            [employee.name],
+            in: CGRect(x: cell.minX, y: cell.minY + 24, width: cell.width, height: 22),
+            font: BodyStyler.font(name: fontName, size: 13, bold: false),
+            color: .black,
+            alignment: .center,
+            verticallyCentered: false
+        )
+        if let signature {
+            let box = CGRect(x: cell.minX + 24, y: cell.minY + 50, width: cell.width - 48, height: cell.height - 54)
             signature.draw(in: Geometry.aspectFit(signature.size, in: box))
-        }
-
-        if let stamp = images.stamp {
-            let side = min(rect.height, 112)
-            let box = CGRect(x: block.maxX + 18, y: rect.midY - side / 2, width: side, height: side)
-            stamp.draw(in: Geometry.aspectFit(stamp.size, in: box), blendMode: .multiply, alpha: 0.92)
         }
     }
 }

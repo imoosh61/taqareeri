@@ -37,13 +37,14 @@ enum ImageProcessor {
     /// Pixels between soft and solid thresholds fade out (anti-aliased edges).
     private static let softThreshold = 206
 
-    static func process(_ data: Data, mode: LogoBackgroundMode, maxPixelSize: Int = 1000) async throws -> Data {
+    /// - Parameter trim: crop to the visible content (logos, stamps); keep `false` for full-page artwork.
+    static func process(_ data: Data, mode: LogoBackgroundMode, maxPixelSize: Int = 1000, trim: Bool = true) async throws -> Data {
         try await Task.detached(priority: .userInitiated) {
-            try ImageProcessor.processSync(data, mode: mode, maxPixelSize: maxPixelSize)
+            try ImageProcessor.processSync(data, mode: mode, maxPixelSize: maxPixelSize, trim: trim)
         }.value
     }
 
-    static func processSync(_ data: Data, mode: LogoBackgroundMode, maxPixelSize: Int) throws -> Data {
+    static func processSync(_ data: Data, mode: LogoBackgroundMode, maxPixelSize: Int, trim: Bool) throws -> Data {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
             throw ImageProcessingError.unreadable
         }
@@ -56,13 +57,13 @@ enum ImageProcessor {
         guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
             throw ImageProcessingError.unreadable
         }
-        let output = mode == .keep ? image : try removeBackground(image, floodFromEdges: mode == .smart)
+        let output = mode == .keep ? image : try removeBackground(image, floodFromEdges: mode == .smart, trim: trim)
         return try encodePNG(output)
     }
 
     // MARK: - Background removal
 
-    private static func removeBackground(_ image: CGImage, floodFromEdges: Bool) throws -> CGImage {
+    private static func removeBackground(_ image: CGImage, floodFromEdges: Bool, trim: Bool) throws -> CGImage {
         let width = image.width
         let height = image.height
         guard width > 0, height > 0 else { throw ImageProcessingError.unreadable }
@@ -82,7 +83,7 @@ enum ImageProcessor {
             let buffer = raw.bindMemory(to: UInt8.self)
             clearBackground(buffer, width: width, height: height, floodFromEdges: floodFromEdges)
             guard let full = context.makeImage() else { return nil }
-            if let crop = opaqueBounds(buffer, width: width, height: height), let cropped = full.cropping(to: crop) {
+            if trim, let crop = opaqueBounds(buffer, width: width, height: height), let cropped = full.cropping(to: crop) {
                 return cropped
             }
             return full

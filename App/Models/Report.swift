@@ -112,6 +112,8 @@ struct FrameSettings: Codable, Equatable {
     var style: FrameStyle = .double
     var colorHex = "1F3A5F"
     var applyToCover = true
+    /// User-imported frame artwork, used when `style == .customImage`.
+    var customFramePNG: Data?
 }
 
 struct CoverSettings: Codable, Equatable {
@@ -120,12 +122,51 @@ struct CoverSettings: Codable, Equatable {
     var preparedBy = ""
 }
 
+struct Employee: Identifiable, Codable, Equatable {
+    var id = UUID()
+    /// Line printed above the name (e.g. "اسم الموظف" or a job title).
+    var label = "اسم الموظف"
+    var name = ""
+    var signaturePNG: Data?
+}
+
+/// Names & signatures block on the last page.
+/// One employee → centered; several → right and left, two per row.
 struct FooterSettings: Codable, Equatable {
     var showSignatureBlock = false
-    var signerTitle = ""
-    var signerName = ""
-    var signaturePNG: Data?
+    var employees: [Employee] = []
     var stampPNG: Data?
+
+    init() {}
+
+    private enum CodingKeys: String, CodingKey {
+        case showSignatureBlock, employees, stampPNG
+        // Version 1.0 fields (single signer), migrated on load.
+        case signerTitle, signerName, signaturePNG
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        showSignatureBlock = try container.decodeIfPresent(Bool.self, forKey: .showSignatureBlock) ?? false
+        stampPNG = try container.decodeIfPresent(Data.self, forKey: .stampPNG)
+        if let employees = try container.decodeIfPresent([Employee].self, forKey: .employees) {
+            self.employees = employees
+        } else {
+            let title = try container.decodeIfPresent(String.self, forKey: .signerTitle) ?? ""
+            let name = try container.decodeIfPresent(String.self, forKey: .signerName) ?? ""
+            let signature = try container.decodeIfPresent(Data.self, forKey: .signaturePNG)
+            if !title.trimmed.isEmpty || !name.trimmed.isEmpty || signature != nil {
+                employees = [Employee(label: title.trimmed.isEmpty ? "اسم الموظف" : title, name: name, signaturePNG: signature)]
+            }
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(showSignatureBlock, forKey: .showSignatureBlock)
+        try container.encode(employees, forKey: .employees)
+        try container.encodeIfPresent(stampPNG, forKey: .stampPNG)
+    }
 }
 
 // MARK: - Report

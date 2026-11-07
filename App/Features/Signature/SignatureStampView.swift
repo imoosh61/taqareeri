@@ -3,43 +3,40 @@ import PhotosUI
 import SwiftUI
 import UIKit
 
-/// Step 4: signer details, drawn/imported signature and official stamp.
+/// Step 4: employees (names + signatures) and official stamp on the last page.
 struct SignatureStampView: View {
     @ObservedObject var vm: ReportEditorViewModel
+    @State private var signingEmployee: EmployeeRef?
+    @State private var photoTarget: UUID?
+    @State private var showPhotoPicker = false
     @State private var signatureItem: PhotosPickerItem?
     @State private var stampItem: PhotosPickerItem?
-    @State private var showPad = false
+    @State private var zoomPage: PageRef?
 
     var body: some View {
         Form {
             Section {
-                Toggle("إظهار التوقيع والختم أسفل التقرير", isOn: $vm.report.footer.showSignatureBlock)
-            } footer: {
-                Text("يظهر في آخر صفحة، وتُضاف صفحة جديدة تلقائياً إن لم تكفِ المساحة.")
-            }
-
-            Section("بيانات الموقّع") {
-                TextField("المسمى الوظيفي (مثال: مدير الإدارة)", text: $vm.report.footer.signerTitle)
-                TextField("اسم الموقّع", text: $vm.report.footer.signerName)
-            }
-
-            Section("التوقيع") {
-                TransparentImagePreview(data: vm.report.footer.signaturePNG, placeholder: "لا يوجد توقيع")
-                    .frame(height: 120)
-                Button {
-                    showPad = true
-                } label: {
-                    Label("رسم التوقيع بالإصبع", systemImage: "signature")
-                }
-                PhotosPicker(selection: $signatureItem, matching: .images) {
-                    Label("استيراد صورة توقيع", systemImage: "photo")
-                }
-                if vm.report.footer.signaturePNG != nil {
-                    Button(role: .destructive) {
-                        vm.report.footer.signaturePNG = nil
+                Toggle("إظهار الأسماء والتوقيعات في آخر صفحة", isOn: $vm.report.footer.showSignatureBlock)
+                if vm.report.footer.showSignatureBlock {
+                    Button {
+                        zoomPage = PageRef(id: vm.pagination.physicalPage(forBodyPage: vm.pagination.lastBodyPage))
                     } label: {
-                        Label("حذف التوقيع", systemImage: "trash")
+                        Label("معاينة الصفحة الأخيرة", systemImage: "eye")
                     }
+                }
+            } footer: {
+                Text("موظف واحد: يظهر في المنتصف. أكثر من موظف: اسم في اليمين واسم في اليسار. وتُضاف صفحة تلقائياً إن لم تكفِ المساحة.")
+            }
+
+            ForEach(Array(vm.report.footer.employees.enumerated()), id: \.element.id) { index, employee in
+                employeeSection(index: index, employee: employee)
+            }
+
+            Section {
+                Button {
+                    vm.addEmployee()
+                } label: {
+                    Label("إضافة موظف", systemImage: "person.badge.plus")
                 }
             }
 
@@ -62,24 +59,99 @@ struct SignatureStampView: View {
             } header: {
                 Text("الختم الرسمي")
             } footer: {
-                Text("تُزال الخلفية البيضاء من الختم والتوقيع تلقائياً.")
+                Text("يوضع الختم بين التوقيعات، وتُزال خلفيته البيضاء تلقائياً.")
             }
         }
-        .sheet(isPresented: $showPad) {
-            SignaturePadView { data in vm.setSignature(png: data) }
+        .sheet(item: $signingEmployee) { ref in
+            SignaturePadView { data in vm.setSignature(png: data, for: ref.id) }
         }
+        .sheet(item: $zoomPage) { ref in
+            PageZoomSheet(vm: vm, initialPage: ref.id)
+        }
+        .photosPicker(isPresented: $showPhotoPicker, selection: $signatureItem, matching: .images)
         .onChange(of: signatureItem) { _, item in
-            load(item) { data in await vm.importSignature(data) }
+            guard let item, let target = photoTarget else { return }
+            load(item) { data in await vm.importSignature(data, for: target) }
             signatureItem = nil
         }
         .onChange(of: stampItem) { _, item in
+            guard let item else { return }
             load(item) { data in await vm.importStamp(data) }
             stampItem = nil
         }
     }
 
-    private func load(_ item: PhotosPickerItem?, then handle: @escaping (Data) async -> Void) {
-        guard let item else { return }
+    private func employeeSection(index: Int, employee: Employee) -> some View {
+        Section {
+            TextField("السطر العلوي (مثال: اسم الموظف أو المسمى الوظيفي)", text: labelBinding(employee.id))
+            TextField("الاسم", text: nameBinding(employee.id))
+
+            if employee.signaturePNG != nil {
+                TransparentImagePreview(data: employee.signaturePNG, placeholder: "")
+                    .frame(height: 90)
+            }
+            HStack {
+                Button {
+                    signingEmployee = EmployeeRef(id: employee.id)
+                } label: {
+                    Label("رسم توقيع", systemImage: "signature")
+                }
+                .buttonStyle(.borderless)
+                Spacer()
+                Button {
+                    photoTarget = employee.id
+                    showPhotoPicker = true
+                } label: {
+                    Label("من الصور", systemImage: "photo")
+                }
+                .buttonStyle(.borderless)
+            }
+            if employee.signaturePNG != nil {
+                Button("حذف التوقيع", role: .destructive) {
+                    vm.removeSignature(for: employee.id)
+                }
+            }
+            Button(role: .destructive) {
+                vm.removeEmployee(employee.id)
+            } label: {
+                Label("حذف الموظف", systemImage: "person.badge.minus")
+            }
+        } header: {
+            Text(position(for: index))
+        }
+    }
+
+    private func position(for index: Int) -> String {
+        let count = vm.report.footer.employees.count
+        let number = ArabicFormat.number(index + 1, vm.report.page.numerals)
+        if count == 1 { return "الموظف \(number) — في المنتصف" }
+        if index == count - 1 && index.isMultiple(of: 2) { return "الموظف \(number) — في المنتصف (سطر جديد)" }
+        return "الموظف \(number) — " + (index.isMultiple(of: 2) ? "يمين" : "يسار")
+    }
+
+    private func labelBinding(_ id: UUID) -> Binding<String> {
+        Binding(
+            get: { vm.report.footer.employees.first { $0.id == id }?.label ?? "" },
+            set: { value in
+                if let index = vm.report.footer.employees.firstIndex(where: { $0.id == id }) {
+                    vm.report.footer.employees[index].label = value
+                }
+            }
+        )
+    }
+
+    private func nameBinding(_ id: UUID) -> Binding<String> {
+        Binding(
+            get: { vm.report.footer.employees.first { $0.id == id }?.name ?? "" },
+            set: { value in
+                if let index = vm.report.footer.employees.firstIndex(where: { $0.id == id }) {
+                    vm.report.footer.employees[index].name = value
+                }
+            }
+        )
+    }
+
+    private func load(_ item: PhotosPickerItem, then handle: @escaping (Data) async -> Void) {
         Task {
             if let data = try? await item.loadTransferable(type: Data.self) {
                 await handle(data)
@@ -88,6 +160,10 @@ struct SignatureStampView: View {
             }
         }
     }
+}
+
+struct EmployeeRef: Identifiable {
+    let id: UUID
 }
 
 // MARK: - Signature pad

@@ -127,6 +127,31 @@ final class RichTextController {
         }
     }
 
+    // MARK: - Text access (AI assistant)
+
+    var selectedText: String {
+        guard let textView, textView.selectedRange.length > 0 else { return "" }
+        return (textView.textStorage.string as NSString).substring(with: textView.selectedRange)
+    }
+
+    var hasSelection: Bool { (textView?.selectedRange.length ?? 0) > 0 }
+
+    /// Replaces the current selection (or inserts at the cursor) with plain text in the current style.
+    func replaceSelection(with string: String) {
+        insertText(string)
+    }
+
+    /// Replaces the whole body with plain text in the base style.
+    func replaceAll(with string: String) {
+        guard let textView else { return }
+        let attributes = BodyStyler.typingAttributes(settingsProvider())
+        let replacement = NSAttributedString(string: string, attributes: attributes)
+        textView.textStorage.setAttributedString(replacement)
+        textView.selectedRange = NSRange(location: replacement.length, length: 0)
+        onTextChanged(textView.attributedText)
+        onSelectionChanged(textView.selectedRange.location)
+    }
+
     // MARK: - Insertion
 
     func insertText(_ string: String) {

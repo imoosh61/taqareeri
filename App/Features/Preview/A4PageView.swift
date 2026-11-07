@@ -12,6 +12,8 @@ final class PageCanvasView: UIView {
         isOpaque = true
         contentMode = .redraw
         semanticContentAttribute = .forceLeftToRight
+        // Taps must reach the SwiftUI gesture attached to the page (open full preview).
+        isUserInteractionEnabled = false
     }
 
     required init?(coder: NSCoder) {
@@ -66,6 +68,7 @@ struct A4PageView: View {
     var body: some View {
         PageCanvas(page: page, context: context)
             .aspectRatio(A4.aspectRatio, contentMode: .fit)
+            .contentShape(Rectangle())
             .clipShape(RoundedRectangle(cornerRadius: 2))
             .shadow(color: .black.opacity(0.18), radius: 6, x: 0, y: 2)
             .environment(\.layoutDirection, .leftToRight)
@@ -76,11 +79,13 @@ struct A4PageView: View {
 final class FrameSwatchUIView: UIView {
     var style: FrameStyle = .none { didSet { if style != oldValue { setNeedsDisplay() } } }
     var colorHex = Theme.accentHex { didSet { if colorHex != oldValue { setNeedsDisplay() } } }
+    var image: UIImage? { didSet { if image !== oldValue { setNeedsDisplay() } } }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .white
         contentMode = .redraw
+        isUserInteractionEnabled = false
     }
 
     required init?(coder: NSCoder) {
@@ -94,7 +99,7 @@ final class FrameSwatchUIView: UIView {
         cg.scaleBy(x: scale, y: scale)
         UIColor.white.setFill()
         cg.fill(A4.bounds)
-        FrameDrawer.draw(style, color: UIColor(hex: colorHex), in: A4.bounds, context: cg)
+        FrameDrawer.draw(style, color: UIColor(hex: colorHex), image: image, in: A4.bounds, context: cg)
 
         // Suggested text lines
         cg.setFillColor(UIColor(white: 0.85, alpha: 1).cgColor)
@@ -110,6 +115,7 @@ final class FrameSwatchUIView: UIView {
 struct FrameSwatch: UIViewRepresentable {
     let style: FrameStyle
     let colorHex: String
+    var image: UIImage? = nil
 
     func makeUIView(context: Context) -> FrameSwatchUIView {
         FrameSwatchUIView(frame: .zero)
@@ -118,5 +124,6 @@ struct FrameSwatch: UIViewRepresentable {
     func updateUIView(_ view: FrameSwatchUIView, context: Context) {
         view.style = style
         view.colorHex = colorHex
+        view.image = style == .customImage ? image : nil
     }
 }

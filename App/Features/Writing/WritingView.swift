@@ -4,9 +4,11 @@ import UIKit
 /// Step 3: the editor with formatting tools and a live A4 preview of the page under the cursor.
 struct WritingView: View {
     @ObservedObject var vm: ReportEditorViewModel
+    @EnvironmentObject private var theme: ThemeStore
     @State private var showTextSettings = false
     @State private var showDictation = false
     @State private var showSections = false
+    @State private var showAI = false
     @State private var zoomPage: PageRef?
     @State private var keyboardVisible = false
     @State private var previewExpanded = true
@@ -17,14 +19,16 @@ struct WritingView: View {
                 vm: vm,
                 onShowSettings: { showTextSettings = true },
                 onDictation: { showDictation = true },
-                onSections: { showSections = true }
+                onSections: { showSections = true },
+                onAI: { showAI = true }
             )
 
             RichTextEditor(
                 controller: vm.richText,
                 content: vm.bodyText,
                 revision: vm.bodyRevision,
-                typingAttributes: vm.typingAttributes
+                typingAttributes: vm.typingAttributes,
+                tint: theme.accentUIColor
             )
             .clipShape(RoundedRectangle(cornerRadius: 12))
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.black.opacity(0.08)))
@@ -45,6 +49,9 @@ struct WritingView: View {
         }
         .sheet(isPresented: $showSections) {
             SectionsOrderSheet(vm: vm)
+        }
+        .sheet(isPresented: $showAI) {
+            AIAssistantSheet(vm: vm)
         }
         .sheet(item: $zoomPage) { ref in
             PageZoomSheet(vm: vm, initialPage: ref.id)
@@ -95,10 +102,18 @@ struct FormattingToolbar: View {
     let onShowSettings: () -> Void
     let onDictation: () -> Void
     let onSections: () -> Void
+    let onAI: () -> Void
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
+                Button(action: onAI) {
+                    Label("الذكاء الاصطناعي", systemImage: "sparkles")
+                        .font(.system(size: 15, weight: .semibold))
+                        .frame(height: 32)
+                }
+                .buttonStyle(.borderedProminent)
+                divider
                 tool("textformat", "إعدادات الخط والفقرات", action: onShowSettings)
                 divider
                 tool("bold", "عريض") { vm.richText.toggleBold() }
@@ -220,6 +235,7 @@ struct TextSettingsSheet: View {
 /// Speech-to-text sheet: live Arabic transcript, inserted at the cursor.
 struct DictationSheet: View {
     let onInsert: (String) -> Void
+    @EnvironmentObject private var theme: ThemeStore
     @StateObject private var dictation = SpeechDictation()
     @Environment(\.dismiss) private var dismiss
 
@@ -247,7 +263,7 @@ struct DictationSheet: View {
                 } label: {
                     Image(systemName: dictation.isRecording ? "stop.circle.fill" : "mic.circle.fill")
                         .font(.system(size: 68))
-                        .foregroundStyle(dictation.isRecording ? Color.red : Theme.accent)
+                        .foregroundStyle(dictation.isRecording ? Color.red : theme.accent)
                         .symbolEffect(.pulse, isActive: dictation.isRecording)
                 }
                 .accessibilityLabel(dictation.isRecording ? "إيقاف" : "بدء الإملاء")

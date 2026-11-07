@@ -2,10 +2,9 @@ import SwiftUI
 import UIKit
 
 enum Theme {
+    /// Defaults; the live, user-chosen colours come from `ThemeStore`.
     static let accentHex = "1F3A5F"
-    static let accent = Color(hex: accentHex)
-    static let gold = Color(hex: "B08D57")
-    static let framePresets = ["1F3A5F", "B08D57", "1E6B4F", "7A2335", "1C1C1E", "6B7280"]
+    static let goldHex = "B08D57"
 }
 
 extension UIColor {

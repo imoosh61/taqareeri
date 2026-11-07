@@ -4,6 +4,7 @@ import SwiftUI
 struct HomeView: View {
     @EnvironmentObject private var store: ReportStore
     @EnvironmentObject private var templates: TemplateStore
+    @EnvironmentObject private var theme: ThemeStore
     @State private var path: [UUID] = []
     @State private var showLibrary = false
     @State private var pendingDelete: Report?
@@ -13,7 +14,7 @@ struct HomeView: View {
             List {
                 Section {
                     Button(action: createReport) {
-                        NewReportCard(templateName: templates.defaultTemplate?.name)
+                        NewReportCard(templateName: templates.defaultTemplate?.name, accent: theme.accent, secondary: theme.secondary)
                     }
                     .buttonStyle(.plain)
                     .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
@@ -111,6 +112,8 @@ struct HomeView: View {
 
 private struct NewReportCard: View {
     let templateName: String?
+    let accent: Color
+    let secondary: Color
 
     var body: some View {
         HStack(spacing: 16) {
@@ -120,11 +123,11 @@ private struct NewReportCard: View {
                     .frame(width: 46, height: 62)
                     .shadow(color: .black.opacity(0.2), radius: 3, y: 1)
                 RoundedRectangle(cornerRadius: 3)
-                    .stroke(Theme.gold, lineWidth: 1.5)
+                    .stroke(secondary, lineWidth: 1.5)
                     .frame(width: 38, height: 54)
                 Image(systemName: "plus")
                     .font(.title3.weight(.bold))
-                    .foregroundStyle(Theme.accent)
+                    .foregroundStyle(accent)
             }
             VStack(alignment: .leading, spacing: 4) {
                 Text("تقرير جديد (A4)")
@@ -140,7 +143,7 @@ private struct NewReportCard: View {
         }
         .padding(18)
         .background(
-            LinearGradient(colors: [Theme.accent, Theme.accent.opacity(0.8)], startPoint: .topLeading, endPoint: .bottomTrailing),
+            LinearGradient(colors: [accent, accent.opacity(0.75), secondary.opacity(0.85)], startPoint: .topLeading, endPoint: .bottomTrailing),
             in: RoundedRectangle(cornerRadius: 18)
         )
     }
@@ -153,7 +156,7 @@ private struct ReportRow: View {
         HStack(spacing: 12) {
             Image(systemName: "doc.text.fill")
                 .font(.title2)
-                .foregroundStyle(Theme.accent)
+                .foregroundStyle(.tint)
             VStack(alignment: .leading, spacing: 3) {
                 Text(report.title.trimmed.isEmpty ? "بدون عنوان" : report.title)
                     .font(.headline)

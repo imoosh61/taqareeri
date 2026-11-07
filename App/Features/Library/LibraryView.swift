@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import UniformTypeIdentifiers
 
 /// Templates, fonts and backup.
@@ -17,6 +18,14 @@ struct LibraryView: View {
                     }
                     NavigationLink { BackupView() } label: {
                         Label("النسخ الاحتياطي والاستعادة", systemImage: "icloud.and.arrow.up")
+                    }
+                }
+                Section {
+                    NavigationLink { AppearanceView() } label: {
+                        Label("ألوان التطبيق والمظهر", systemImage: "paintpalette")
+                    }
+                    NavigationLink { AISettingsView() } label: {
+                        Label("الذكاء الاصطناعي", systemImage: "sparkles")
                     }
                 }
                 Section("حول التطبيق") {
@@ -38,6 +47,7 @@ struct LibraryView: View {
 
 struct TemplatesView: View {
     @EnvironmentObject private var templates: TemplateStore
+    @EnvironmentObject private var theme: ThemeStore
     @State private var renaming: HeaderTemplate?
     @State private var newName = ""
 
@@ -69,8 +79,8 @@ struct TemplatesView: View {
                                 .font(.caption.weight(.semibold))
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 3)
-                                .background(Theme.accent.opacity(0.15), in: Capsule())
-                                .foregroundStyle(Theme.accent)
+                                .background(theme.accent.opacity(0.15), in: Capsule())
+                                .foregroundStyle(theme.accent)
                         }
                     }
                 }
@@ -225,5 +235,78 @@ struct BackupView: View {
         .alert(message ?? "", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
             Button("حسناً", role: .cancel) {}
         }
+    }
+}
+
+/// App colours: accent (buttons, selection, home card) and secondary, plus light/dark mode.
+struct AppearanceView: View {
+    @EnvironmentObject private var theme: ThemeStore
+
+    private var accentBinding: Binding<Color> {
+        Binding(get: { theme.accent }, set: { theme.accentHex = UIColor($0).hexString })
+    }
+
+    private var secondaryBinding: Binding<Color> {
+        Binding(get: { theme.secondary }, set: { theme.secondaryHex = UIColor($0).hexString })
+    }
+
+    var body: some View {
+        Form {
+            Section {
+                HStack(spacing: 14) {
+                    RoundedRectangle(cornerRadius: 14)
+                        .fill(LinearGradient(colors: [theme.accent, theme.accent.opacity(0.75), theme.secondary.opacity(0.85)],
+                                             startPoint: .topLeading, endPoint: .bottomTrailing))
+                        .frame(height: 64)
+                        .overlay(Text("تقاريري").font(.title3.weight(.bold)).foregroundStyle(.white))
+                }
+                .listRowBackground(Color.clear)
+            }
+
+            Section("اللون الرئيسي") {
+                palette(selected: theme.accentHex) { theme.accentHex = $0 }
+                ColorPicker("لون مخصص", selection: accentBinding, supportsOpacity: false)
+            }
+
+            Section("اللون الثانوي") {
+                palette(selected: theme.secondaryHex) { theme.secondaryHex = $0 }
+                ColorPicker("لون مخصص", selection: secondaryBinding, supportsOpacity: false)
+            }
+
+            Section("المظهر") {
+                Picker("المظهر", selection: $theme.appearance) {
+                    ForEach(AppAppearance.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+            }
+
+            Section {
+                Button("استعادة الألوان الافتراضية", role: .destructive) { theme.reset() }
+            }
+        }
+        .navigationTitle("ألوان التطبيق")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func palette(selected: String, onSelect: @escaping (String) -> Void) -> some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 36), spacing: 10)], spacing: 10) {
+            ForEach(ThemeStore.palette, id: \.self) { hex in
+                Button {
+                    onSelect(hex)
+                } label: {
+                    Circle()
+                        .fill(Color(hex: hex))
+                        .frame(width: 32, height: 32)
+                        .overlay(
+                            Image(systemName: "checkmark")
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(.white)
+                                .opacity(selected.uppercased() == hex ? 1 : 0)
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.vertical, 6)
     }
 }
