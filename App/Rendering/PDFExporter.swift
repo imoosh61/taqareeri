@@ -20,7 +20,7 @@ enum PDFExporter {
         let format = UIGraphicsPDFRendererFormat()
         format.documentInfo = [
             kCGPDFContextTitle as String: render.report.title,
-            kCGPDFContextCreator as String: "تقاريري"
+            kCGPDFContextCreator as String: "تقاريري — \(AppInfo.developer)"
         ]
         let renderer = UIGraphicsPDFRenderer(bounds: A4.bounds, format: format)
 

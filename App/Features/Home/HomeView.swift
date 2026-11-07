@@ -21,7 +21,7 @@ struct HomeView: View {
                     .listRowBackground(Color.clear)
                 }
 
-                Section("المسودات") {
+                Section {
                     if store.reports.isEmpty {
                         ContentUnavailableView(
                             "لا توجد تقارير بعد",
@@ -53,6 +53,14 @@ struct HomeView: View {
                             }
                         }
                     }
+                } header: {
+                    Text("المسودات")
+                } footer: {
+                    Text("تطوير \(AppInfo.developer)")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 24)
                 }
             }
             .navigationTitle("تقاريري")

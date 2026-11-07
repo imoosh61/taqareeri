@@ -44,7 +44,14 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
-            -quiet
+            -quiet 2>&1 | tee "$RUNNER_TEMP/build.log"
+
+      - name: Report compile errors
+        if: failure()
+        run: |
+          grep -E "error:" "$RUNNER_TEMP/build.log" | sed 's|.*/App/|App/|' | sort -u | head -40 | while IFS= read -r line; do
+            echo "::error::$line"
+          done
 
       - name: Package IPA
         run: |

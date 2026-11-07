@@ -1,6 +1,18 @@
 import SwiftUI
 import UIKit
 
+/// App identity & credits.
+enum AppInfo {
+    static let developer = "Mohammad Hakami - imoosh"
+    static let developerArabic = "محمد حكمي"
+    static let copyright = "© \(Calendar(identifier: .gregorian).component(.year, from: Date())) Mohammad Hakami - imoosh. جميع الحقوق محفوظة."
+    static var version: String {
+        let short = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "1"
+        return "\(short) (\(build))"
+    }
+}
+
 enum Theme {
     /// Defaults; the live, user-chosen colours come from `ThemeStore`.
     static let accentHex = "1F3A5F"

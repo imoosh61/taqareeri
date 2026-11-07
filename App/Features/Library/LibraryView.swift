@@ -29,9 +29,20 @@ struct LibraryView: View {
                     }
                 }
                 Section("حول التطبيق") {
+                    LabeledContent("التطبيق", value: "تقاريري")
+                    LabeledContent("الإصدار", value: AppInfo.version)
+                    LabeledContent("تطوير") {
+                        Text(AppInfo.developer)
+                            .environment(\.layoutDirection, .leftToRight)
+                    }
                     Text("تُحفظ المسودات تلقائياً على جهازك، وتظهر في تطبيق «الملفات» داخل مجلد التطبيق. استخدم النسخ الاحتياطي لحفظ نسخة في iCloud Drive.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
+                } footer: {
+                    Text(AppInfo.copyright)
+                        .frame(maxWidth: .infinity)
+                        .multilineTextAlignment(.center)
+                        .padding(.top, 8)
                 }
             }
             .navigationTitle("المكتبة")
