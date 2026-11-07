@@ -28,7 +28,7 @@ struct LibraryView: View {
                         Label("الذكاء الاصطناعي", systemImage: "sparkles")
                     }
                 }
-                Section("حول التطبيق") {
+                Section {
                     LabeledContent("التطبيق", value: "تقاريري")
                     LabeledContent("الإصدار", value: AppInfo.version)
                     LabeledContent("تطوير") {
@@ -38,6 +38,8 @@ struct LibraryView: View {
                     Text("تُحفظ المسودات تلقائياً على جهازك، وتظهر في تطبيق «الملفات» داخل مجلد التطبيق. استخدم النسخ الاحتياطي لحفظ نسخة في iCloud Drive.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
+                } header: {
+                    Text("حول التطبيق")
                 } footer: {
                     Text(AppInfo.copyright)
                         .frame(maxWidth: .infinity)

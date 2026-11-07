@@ -18,9 +18,9 @@ enum PDFExporter {
         guard pageCount > 0 else { throw PDFExportError.emptyDocument }
 
         let format = UIGraphicsPDFRendererFormat()
+        // Only the report title: no app or developer credits inside shared documents.
         format.documentInfo = [
-            kCGPDFContextTitle as String: render.report.title,
-            kCGPDFContextCreator as String: "تقاريري — \(AppInfo.developer)"
+            kCGPDFContextTitle as String: render.report.title
         ]
         let renderer = UIGraphicsPDFRenderer(bounds: A4.bounds, format: format)
 
