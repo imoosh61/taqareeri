@@ -8,6 +8,11 @@ enum BodyStyler {
         let regular = UIFont(name: name, size: size)
             ?? UIFont(name: FontCatalog.defaultFontName, size: size)
             ?? UIFont.systemFont(ofSize: size)
+
+        // Variable fonts: pick the weight on the "wght" axis (400 regular, 700 bold).
+        if regular.isVariable {
+            return regular.withVariationWeight(bold ? 700 : 400)
+        }
         guard bold else { return regular }
 
         // 1) Conventional naming: Family-Regular → Family-Bold

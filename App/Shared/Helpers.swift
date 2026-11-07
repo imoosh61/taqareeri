@@ -1,3 +1,4 @@
+import CoreText
 import SwiftUI
 import UIKit
 
@@ -47,7 +48,28 @@ extension Color {
 }
 
 extension UIFont {
-    var isBold: Bool { fontDescriptor.symbolicTraits.contains(.traitBold) }
+    private static let weightAxisTag = NSNumber(value: 0x7767_6874) // 'wght'
+    private static let variationKey = UIFontDescriptor.AttributeName(rawValue: kCTFontVariationAttribute as String)
+
+    var isVariable: Bool {
+        guard let axes = CTFontCopyVariationAxes(self as CTFont) as? [Any] else { return false }
+        return !axes.isEmpty
+    }
+
+    /// Bold either by face (static fonts) or by the weight axis (variable fonts).
+    var isBold: Bool {
+        if fontDescriptor.symbolicTraits.contains(.traitBold) { return true }
+        if let variations = fontDescriptor.fontAttributes[Self.variationKey] as? NSDictionary,
+           let weight = variations[Self.weightAxisTag] as? NSNumber {
+            return weight.doubleValue >= 600
+        }
+        return false
+    }
+
+    func withVariationWeight(_ weight: CGFloat) -> UIFont {
+        let descriptor = fontDescriptor.addingAttributes([Self.variationKey: [Self.weightAxisTag: NSNumber(value: Double(weight))]])
+        return UIFont(descriptor: descriptor, size: pointSize)
+    }
 }
 
 extension String {

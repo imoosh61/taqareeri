@@ -140,8 +140,9 @@ struct FontsView: View {
 
     var body: some View {
         List {
-            Section {
-                ForEach(fonts.fonts) { font in
+            ForEach(fonts.grouped, id: \.category) { group in
+              Section(group.category.title) {
+                ForEach(group.fonts) { font in
                     VStack(alignment: .leading, spacing: 4) {
                         Text(font.displayName)
                             .font(.caption)
@@ -160,6 +161,11 @@ struct FontsView: View {
                         }
                     }
                 }
+              }
+            }
+
+            Section {
+                EmptyView()
             } footer: {
                 Text("خط Traditional Arabic مملوك لمايكروسوفت ولا يمكن تضمينه، لكن يمكنك استيراد ملفه المرخّص لديك (TTF/OTF) واستخدامه في تقاريرك.")
             }

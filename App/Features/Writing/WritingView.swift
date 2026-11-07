@@ -164,14 +164,14 @@ struct TextSettingsSheet: View {
         NavigationStack {
             Form {
                 Section("الخط") {
-                    Picker("نوع الخط", selection: $vm.report.textStyle.fontName) {
-                        ForEach(fonts.fonts) { font in
-                            Text(font.displayName)
-                                .font(.custom(font.postScriptName, size: 17))
-                                .tag(font.postScriptName)
+                    NavigationLink {
+                        FontPickerView(selection: $vm.report.textStyle.fontName)
+                    } label: {
+                        LabeledContent("نوع الخط") {
+                            Text(fonts.displayName(for: vm.report.textStyle.fontName))
+                                .lineLimit(1)
                         }
                     }
-                    .pickerStyle(.navigationLink)
 
                     Stepper(value: $vm.report.textStyle.fontSize, in: 10...32, step: 1) {
                         HStack {
@@ -357,5 +357,58 @@ struct SectionsOrderSheet: View {
             }
             .onAppear { items = vm.sections() }
         }
+    }
+}
+
+/// Font browser grouped by style, each row previewed in its own font.
+struct FontPickerView: View {
+    @Binding var selection: String
+    @EnvironmentObject private var fonts: FontRegistry
+    @Environment(\.dismiss) private var dismiss
+    @State private var sample = "تقرير رسمي — بسم الله الرحمن الرحيم ١٢٣"
+
+    var body: some View {
+        List {
+            Section {
+                TextField("نص المعاينة", text: $sample)
+            } header: {
+                Text("نص المعاينة")
+            } footer: {
+                Text("\(ArabicFormat.number(fonts.fonts.count, .arabicIndic)) خطاً متاحاً. يمكنك استيراد خطوطك من «المكتبة ← الخطوط».")
+            }
+
+            ForEach(fonts.grouped, id: \.category) { group in
+                Section(group.category.title) {
+                    ForEach(group.fonts) { font in
+                        Button {
+                            selection = font.postScriptName
+                            dismiss()
+                        } label: {
+                            HStack(alignment: .center, spacing: 12) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(font.displayName)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                    Text(sample.isEmpty ? font.displayName : sample)
+                                        .font(.custom(font.postScriptName, size: 21))
+                                        .foregroundStyle(.primary)
+                                        .lineLimit(1)
+                                }
+                                Spacer()
+                                if selection == font.postScriptName {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundStyle(.tint)
+                                }
+                            }
+                            .padding(.vertical, 4)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+        .navigationTitle("اختيار الخط")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
