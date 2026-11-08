@@ -54,6 +54,7 @@ struct ReportEditorView: View {
             ToolbarItemGroup(placement: .primaryAction) {
                 Button {
                     KeyboardHelper.dismiss()
+                    vm.autoFormatIfEnabled()
                     vm.repaginate()
                     zoomPage = PageRef(id: tab == .writing ? vm.cursorPhysicalPage : 0)
                 } label: {
@@ -78,8 +79,9 @@ struct ReportEditorView: View {
         } message: {
             Text(vm.errorMessage ?? "")
         }
-        .onChange(of: tab) {
+        .onChange(of: tab) { oldTab, _ in
             KeyboardHelper.dismiss()
+            if oldTab == .writing { vm.autoFormatIfEnabled() }
             vm.saveNow()
         }
         .onChange(of: scenePhase) { _, phase in

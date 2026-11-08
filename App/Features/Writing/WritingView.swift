@@ -9,6 +9,8 @@ struct WritingView: View {
     @State private var showDictation = false
     @State private var showSections = false
     @State private var showAI = false
+    @State private var showFormat = false
+    @AppStorage("spellcheck.live") private var liveSpellCheck = true
     @State private var zoomPage: PageRef?
     @State private var keyboardVisible = false
     @State private var previewExpanded = true
@@ -20,7 +22,8 @@ struct WritingView: View {
                 onShowSettings: { showTextSettings = true },
                 onDictation: { showDictation = true },
                 onSections: { showSections = true },
-                onAI: { showAI = true }
+                onAI: { showAI = true },
+                onFormat: { showFormat = true }
             )
 
             RichTextEditor(
@@ -28,7 +31,8 @@ struct WritingView: View {
                 content: vm.bodyText,
                 revision: vm.bodyRevision,
                 typingAttributes: vm.typingAttributes,
-                tint: theme.accentUIColor
+                tint: theme.accentUIColor,
+                spellCheck: liveSpellCheck
             )
             .clipShape(RoundedRectangle(cornerRadius: 12))
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.black.opacity(0.08)))
@@ -49,6 +53,10 @@ struct WritingView: View {
         }
         .sheet(isPresented: $showSections) {
             SectionsOrderSheet(vm: vm)
+        }
+        .sheet(isPresented: $showFormat) {
+            AutoFormatSheet(vm: vm)
+                .presentationDetents([.medium, .large])
         }
         .sheet(isPresented: $showAI) {
             AIAssistantSheet(vm: vm)
@@ -103,6 +111,7 @@ struct FormattingToolbar: View {
     let onDictation: () -> Void
     let onSections: () -> Void
     let onAI: () -> Void
+    let onFormat: () -> Void
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -113,6 +122,12 @@ struct FormattingToolbar: View {
                         .frame(height: 32)
                 }
                 .buttonStyle(.borderedProminent)
+                Button(action: onFormat) {
+                    Label("تنسيق وتدقيق", systemImage: "wand.and.stars")
+                        .font(.system(size: 15, weight: .semibold))
+                        .frame(height: 32)
+                }
+                .buttonStyle(.bordered)
                 divider
                 tool("textformat", "إعدادات الخط والفقرات", action: onShowSettings)
                 divider
@@ -194,12 +209,18 @@ struct TextSettingsSheet: View {
                     }
                     .pickerStyle(.segmented)
 
-                    Stepper(value: $vm.report.textStyle.lineHeightMultiple, in: 1.0...2.4, step: 0.1) {
-                        HStack {
-                            Text("تباعد الأسطر")
-                            Spacer()
-                            Text(String(format: "%.1f", vm.report.textStyle.lineHeightMultiple))
-                                .foregroundStyle(.secondary)
+                    Picker("تباعد الأسطر", selection: $vm.report.textStyle.lineSpacing) {
+                        ForEach(LineSpacing.allCases) { Text($0.title).tag($0) }
+                    }
+
+                    if vm.report.textStyle.lineSpacing == .custom {
+                        Stepper(value: $vm.report.textStyle.lineHeightMultiple, in: 1.0...2.4, step: 0.1) {
+                            HStack {
+                                Text("التباعد المخصص")
+                                Spacer()
+                                Text(String(format: "%.1f", vm.report.textStyle.lineHeightMultiple))
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                     }
 
@@ -217,8 +238,21 @@ struct TextSettingsSheet: View {
                     Text("تغيير المحاذاة هنا يُطبَّق على جميع الفقرات. لمحاذاة فقرة واحدة استخدم أزرار شريط الأدوات.")
                 }
 
-                Section("ترقيم الصفحات") {
+                Section {
+                    Picker("الهوامش", selection: $vm.report.page.margins) {
+                        ForEach(PageMargins.allCases) { Text($0.title).tag($0) }
+                    }
                     Toggle("إظهار رقم الصفحة أسفل الورقة", isOn: $vm.report.page.showPageNumbers)
+                    if let lines = PageLayoutSpec.estimatedLines(for: vm.report) {
+                        LabeledContent("عدد الأسطر في الصفحة") {
+                            Text(linesText(lines))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                } header: {
+                    Text("الصفحة")
+                } footer: {
+                    Text("مع التباعد «مفرد» والهوامش «عادي» يطابق عدد الأسطر صفحة Word على الكمبيوتر بنفس حجم الخط تقريباً (المسافة بين الفقرات تقلّله قليلاً).")
                 }
             }
             .navigationTitle("إعدادات النص")
@@ -229,6 +263,14 @@ struct TextSettingsSheet: View {
                 }
             }
         }
+    }
+}
+
+extension TextSettingsSheet {
+    func linesText(_ lines: (first: Int, other: Int)) -> String {
+        let numerals = vm.report.page.numerals
+        if lines.first == lines.other { return "≈ \(ArabicFormat.number(lines.other, numerals)) سطراً" }
+        return "≈ \(ArabicFormat.number(lines.other, numerals)) (الأولى \(ArabicFormat.number(lines.first, numerals)))"
     }
 }
 

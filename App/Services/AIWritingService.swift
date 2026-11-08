@@ -37,7 +37,7 @@ enum AIWritingTask: String, CaseIterable, Identifiable {
         case .formalize:
             return "أعد صياغة النص التالي بأسلوب إداري رسمي فصيح ومناسب للمراسلات الحكومية، مع الحفاظ على المعنى والمعلومات كما هي."
         case .proofread:
-            return "دقّق النص التالي إملائياً ونحوياً وصحّح علامات الترقيم فقط، دون تغيير الأسلوب أو المعنى، وأعد النص كاملاً بعد التصحيح."
+            return "دقّق النص التالي إملائياً ونحوياً (الهمزات، التاء المربوطة والهاء، الألف المقصورة والياء، الأخطاء الشائعة) وصحّح علامات الترقيم فقط، دون تغيير الأسلوب أو الكلمات الصحيحة أو المعنى. حافظ على تقسيم الأسطر والفقرات والأسطر الفارغة كما هي تماماً، وأعد النص كاملاً بعد التصحيح."
         case .summarize:
             return "لخّص النص التالي في فقرة أو فقرتين موجزتين بأسلوب رسمي، مع إبقاء النقاط الجوهرية."
         case .expand:
@@ -116,7 +116,8 @@ struct AIReportContext {
 struct AIWritingService {
     private let endpoint = URL(string: "https://api.anthropic.com/v1/messages")!
 
-    func run(task: AIWritingTask, input: String, context: AIReportContext) async throws -> String {
+    /// - Parameter raw: return the model text as-is (only bold markers removed), keeping line layout.
+    func run(task: AIWritingTask, input: String, context: AIReportContext, raw: Bool = false) async throws -> String {
         guard let apiKey = AISettings.apiKey, !apiKey.isEmpty else { throw AIWritingError.missingKey }
 
         var request = URLRequest(url: endpoint)
@@ -161,7 +162,9 @@ struct AIWritingService {
             .filter { ($0["type"] as? String) == "text" }
             .compactMap { $0["text"] as? String }
             .joined()
-        let cleaned = Self.stripMarkdown(text)
+        let cleaned = raw
+            ? text.replacingOccurrences(of: "**", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+            : Self.stripMarkdown(text)
         guard !cleaned.isEmpty else { throw AIWritingError.emptyResponse }
         return cleaned
     }

@@ -96,6 +96,31 @@ struct HeaderInfo: Codable, Equatable {
     // Optional so older saved reports (without these keys) still decode.
     var adminFontSizeValue: Double?
     var dateFontSizeValue: Double?
+    var adminOffsetValue: Double?
+    var dateOffsetValue: Double?
+    var adminAlignmentValue: ParagraphAlignment?
+    var dateAlignmentValue: ParagraphAlignment?
+
+    /// Horizontal shift of each header block in points (+ = right, − = left).
+    var adminOffset: Double {
+        get { adminOffsetValue ?? 0 }
+        set { adminOffsetValue = newValue == 0 ? nil : newValue }
+    }
+
+    var dateOffset: Double {
+        get { dateOffsetValue ?? 0 }
+        set { dateOffsetValue = newValue == 0 ? nil : newValue }
+    }
+
+    var adminAlignment: ParagraphAlignment {
+        get { adminAlignmentValue ?? .center }
+        set { adminAlignmentValue = newValue }
+    }
+
+    var dateAlignment: ParagraphAlignment {
+        get { dateAlignmentValue ?? .right }
+        set { dateAlignmentValue = newValue }
+    }
 
     static let defaultAdminFontSize = 12.5
     static let defaultDateFontSize = 11.5
@@ -111,17 +136,105 @@ struct HeaderInfo: Codable, Equatable {
     }
 }
 
+/// Line spacing like Microsoft Word: a fixed line height of 1.2 × font size × multiple,
+/// so the number of lines per page depends only on the font size (as on a computer).
+enum LineSpacing: String, Codable, CaseIterable, Identifiable {
+    case single, onePointFifteen, onePointFive, double, custom
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .single: return "مفرد (مثل Word)"
+        case .onePointFifteen: return "1.15"
+        case .onePointFive: return "1.5"
+        case .double: return "مزدوج"
+        case .custom: return "مخصص"
+        }
+    }
+
+    /// nil = custom (natural font line height × `lineHeightMultiple`).
+    var multiple: Double? {
+        switch self {
+        case .single: return 1.0
+        case .onePointFifteen: return 1.15
+        case .onePointFive: return 1.5
+        case .double: return 2.0
+        case .custom: return nil
+        }
+    }
+
+    static let wordLineFactor = 1.2
+}
+
 struct TextStyleSettings: Codable, Equatable {
     var fontName = FontCatalog.defaultFontName
     var fontSize: Double = 16
     var lineHeightMultiple: Double = 1.35
-    var paragraphSpacing: Double = 8
+    var paragraphSpacing: Double = 6
     var defaultAlignment: ParagraphAlignment = .justified
+    /// New reports use Word-like single spacing; older saved reports decode as nil (custom).
+    var lineSpacingValue: LineSpacing? = .single
+
+    var lineSpacing: LineSpacing {
+        get { lineSpacingValue ?? .custom }
+        set { lineSpacingValue = newValue }
+    }
+
+    /// Fixed line height in points, or nil for natural spacing.
+    func fixedLineHeight(forFontSize size: Double) -> CGFloat? {
+        guard let multiple = lineSpacing.multiple else { return nil }
+        return CGFloat(size * LineSpacing.wordLineFactor * multiple)
+    }
+}
+
+/// Page margins in points (72 pt = 2.54 cm, Word's "Normal").
+enum PageMargins: String, Codable, CaseIterable, Identifiable {
+    case normal, moderate, narrow, wide, compact
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .normal: return "عادي ٢٫٥٤ سم (مثل Word)"
+        case .moderate: return "متوسط"
+        case .narrow: return "ضيق ١٫٢٧ سم"
+        case .wide: return "عريض"
+        case .compact: return "مدمج (الإصدار السابق)"
+        }
+    }
+
+    var horizontal: CGFloat {
+        switch self {
+        case .normal: return 72
+        case .moderate: return 54
+        case .narrow: return 36
+        case .wide: return 108
+        case .compact: return 56
+        }
+    }
+
+    var top: CGFloat {
+        switch self {
+        case .narrow: return 36
+        case .compact: return 46
+        default: return 72
+        }
+    }
+
+    var bottom: CGFloat { top }
 }
 
 struct PageSettings: Codable, Equatable {
     var showPageNumbers = true
     var numerals: NumeralStyle = .arabicIndic
+    /// New reports use Word margins; older saved reports decode as nil (previous compact layout).
+    var marginsValue: PageMargins? = .normal
+
+    var margins: PageMargins {
+        get { marginsValue ?? .compact }
+        set { marginsValue = newValue }
+    }
 }
 
 struct FrameSettings: Codable, Equatable {
@@ -247,6 +360,13 @@ struct Report: Identifiable, Codable, Equatable {
     var body = BodyDocument()
     /// Optional so reports saved by earlier versions (without this key) still decode.
     var addresseeStorage: AddresseeSettings?
+    var autoFormatStorage: Bool?
+
+    /// Tidy spaces & punctuation automatically before preview and export.
+    var autoFormat: Bool {
+        get { autoFormatStorage ?? true }
+        set { autoFormatStorage = newValue }
+    }
 
     var addressee: AddresseeSettings {
         get { addresseeStorage ?? AddresseeSettings() }

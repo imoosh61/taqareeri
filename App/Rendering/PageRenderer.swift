@@ -113,8 +113,20 @@ enum PageRenderer {
         let gap: CGFloat = 10
         let columnWidth = (content.width - logoSide - gap * 2) / 2
 
-        let rightColumn = CGRect(x: content.maxX - columnWidth, y: content.minY, width: columnWidth, height: content.height)
-        let leftColumn = CGRect(x: content.minX, y: content.minY, width: columnWidth, height: content.height)
+        let page = CGRect(origin: .zero, size: A4.size).insetBy(dx: 10, dy: 0)
+        func shifted(_ column: CGRect, by offset: Double) -> CGRect {
+            var moved = column.offsetBy(dx: CGFloat(offset), dy: 0)
+            moved.origin.x = min(max(moved.minX, page.minX), page.maxX - moved.width)
+            return moved
+        }
+        let rightColumn = shifted(
+            CGRect(x: content.maxX - columnWidth, y: content.minY, width: columnWidth, height: content.height),
+            by: header.adminOffset
+        )
+        let leftColumn = shifted(
+            CGRect(x: content.minX, y: content.minY, width: columnWidth, height: content.height),
+            by: header.dateOffset
+        )
         let fontName = report.textStyle.fontName
 
         TextDraw.draw(
@@ -122,7 +134,7 @@ enum PageRenderer {
             in: rightColumn,
             font: BodyStyler.font(name: fontName, size: CGFloat(header.adminFontSize), bold: true),
             color: .black,
-            alignment: .center,
+            alignment: header.adminAlignment.nsAlignment,
             shrinkToFit: true
         )
 
@@ -131,7 +143,7 @@ enum PageRenderer {
             in: leftColumn,
             font: BodyStyler.font(name: fontName, size: CGFloat(header.dateFontSize), bold: false),
             color: .black,
-            alignment: .right,
+            alignment: header.dateAlignment.nsAlignment,
             shrinkToFit: true
         )
 

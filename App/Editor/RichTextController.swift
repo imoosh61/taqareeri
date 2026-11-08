@@ -106,6 +106,7 @@ final class RichTextController {
             storage.enumerateAttribute(.font, in: range, options: []) { value, subrange, _ in
                 storage.addAttribute(.font, value: resized(value as? UIFont), range: subrange)
             }
+            BodyStyler.normalizeParagraphStyles(storage, in: range, settings: settings)
         }
     }
 
@@ -124,6 +125,7 @@ final class RichTextController {
         guard paragraphRange.length > 0 else { return }
         mutate(textView) { storage in
             storage.addAttribute(.paragraphStyle, value: BodyStyler.paragraphStyle(alignment, settings: settings), range: paragraphRange)
+            BodyStyler.normalizeParagraphStyles(storage, in: paragraphRange, settings: settings)
         }
     }
 

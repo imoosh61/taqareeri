@@ -192,6 +192,61 @@ final class ReportEditorViewModel: ObservableObject {
         }
     }
 
+    // MARK: - Formatting & proofreading
+
+    @Published private(set) var canUndoTextChange = false
+    private var undoSnapshot: NSAttributedString?
+
+    private func replaceBody(_ text: NSAttributedString, keepUndo: Bool) {
+        if keepUndo {
+            undoSnapshot = bodyText
+            canUndoTextChange = true
+        }
+        bodyText = text
+        bodyRevision += 1
+        hasUnsavedChanges = true
+        bodyChanged.send()
+    }
+
+    /// Local spacing / punctuation clean-up. Returns the number of edits.
+    @discardableResult
+    func formatText(keepUndo: Bool = true) -> Int {
+        let text = NSMutableAttributedString(attributedString: bodyText)
+        let edits = ArabicTextFormatter.format(text)
+        guard edits > 0 else { return 0 }
+        BodyStyler.normalizeParagraphStyles(text, settings: report.textStyle)
+        replaceBody(text, keepUndo: keepUndo)
+        return edits
+    }
+
+    func autoFormatIfEnabled() {
+        guard report.autoFormat else { return }
+        formatText(keepUndo: false)
+    }
+
+    /// AI spelling & grammar correction applied word by word. Returns the number of corrected words.
+    func proofreadWithAI(progress: @escaping (Int, Int) -> Void) async throws -> Int {
+        let context = AIReportContext(
+            title: report.title,
+            ministry: report.header.ministry,
+            administration: report.header.generalAdministration,
+            department: report.header.department
+        )
+        let (corrected, changes) = try await ProofreadService().proofread(bodyText, context: context, progress: progress)
+        guard changes > 0 else { return 0 }
+        let text = NSMutableAttributedString(attributedString: corrected)
+        BodyStyler.normalizeParagraphStyles(text, settings: report.textStyle)
+        replaceBody(text, keepUndo: true)
+        return changes
+    }
+
+    func undoTextChange() {
+        guard let snapshot = undoSnapshot else { return }
+        undoSnapshot = nil
+        canUndoTextChange = false
+        replaceBody(snapshot, keepUndo: false)
+    }
+
     // MARK: - Free signature placement
 
     var lastBodyPhysicalPage: Int { pagination.physicalPage(forBodyPage: pagination.lastBodyPage) }
@@ -322,6 +377,7 @@ final class ReportEditorViewModel: ObservableObject {
     // MARK: - Export
 
     func exportPDF() -> URL? {
+        autoFormatIfEnabled()
         repaginate()
         saveNow()
         do {

@@ -45,11 +45,18 @@ struct HeaderEditorView: View {
                 TextField("اسم الوزارة / الجهة", text: $vm.report.header.ministry)
                 TextField("الإدارة العامة", text: $vm.report.header.generalAdministration)
                 TextField("القسم", text: $vm.report.header.department)
+                HeaderStripPreview(page: vm.firstBodyPhysicalPage, context: vm.renderContext)
+                    .listRowInsets(EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8))
                 FontSizeSlider(
                     title: "حجم خط البيانات الإدارية",
                     value: $vm.report.header.adminFontSize,
                     defaultValue: HeaderInfo.defaultAdminFontSize,
                     numerals: vm.report.page.numerals
+                )
+                HorizontalPositionControl(
+                    title: "موضع البيانات الإدارية",
+                    offset: $vm.report.header.adminOffset,
+                    alignment: $vm.report.header.adminAlignment
                 )
             } header: {
                 Text("الجانب الأيمن — البيانات الإدارية")
@@ -63,11 +70,18 @@ struct HeaderEditorView: View {
                     ForEach(DateMode.allCases) { Text($0.title).tag($0) }
                 }
                 Toggle("إظهار اليوم", isOn: $vm.report.header.showDayName)
+                HeaderStripPreview(page: vm.firstBodyPhysicalPage, context: vm.renderContext)
+                    .listRowInsets(EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8))
                 FontSizeSlider(
                     title: "حجم خط التاريخ والرقم",
                     value: $vm.report.header.dateFontSize,
                     defaultValue: HeaderInfo.defaultDateFontSize,
                     numerals: vm.report.page.numerals
+                )
+                HorizontalPositionControl(
+                    title: "موضع التاريخ والرقم",
+                    offset: $vm.report.header.dateOffset,
+                    alignment: $vm.report.header.dateAlignment
                 )
                 TextField("الرقم المرجعي", text: $vm.report.header.referenceNumber)
                 TextField("المرفقات (اختياري)", text: $vm.report.header.attachments)
@@ -263,5 +277,76 @@ struct FontSizeSlider: View {
             }
         }
         .padding(.vertical, 4)
+    }
+}
+
+/// Moves a header block left / right and sets its text alignment.
+struct HorizontalPositionControl: View {
+    let title: String
+    @Binding var offset: Double
+    @Binding var alignment: ParagraphAlignment
+
+    private let alignments: [ParagraphAlignment] = [.left, .center, .right]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(title)
+                Spacer()
+                if offset != 0 {
+                    Button {
+                        offset = 0
+                    } label: {
+                        Label("الوضع الأصلي", systemImage: "arrow.counterclockwise")
+                            .labelStyle(.iconOnly)
+                    }
+                    .buttonStyle(.borderless)
+                }
+            }
+            HStack(spacing: 8) {
+                nudge("chevron.left") { offset = max(offset - 2, -160) }
+                Text("يسار").font(.caption).foregroundStyle(.secondary)
+                Slider(value: $offset, in: -160...160, step: 1)
+                Text("يمين").font(.caption).foregroundStyle(.secondary)
+                nudge("chevron.right") { offset = min(offset + 2, 160) }
+            }
+            .environment(\.layoutDirection, .leftToRight)
+
+            Picker("محاذاة النص", selection: $alignment) {
+                ForEach(alignments) { item in
+                    Image(systemName: item.systemImage).tag(item)
+                }
+            }
+            .pickerStyle(.segmented)
+            .environment(\.layoutDirection, .leftToRight)
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func nudge(_ icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .frame(width: 28, height: 28)
+        }
+        .buttonStyle(.bordered)
+        .buttonRepeatBehavior(.enabled)
+    }
+}
+
+/// The top strip of a page (letterhead area) so header changes are visible while editing below.
+struct HeaderStripPreview: View {
+    let page: Int
+    let context: PageRenderContext
+
+    var body: some View {
+        let visible = context.pagination.spec.headerRect.maxY + 10
+        GeometryReader { proxy in
+            let width = proxy.size.width
+            A4PageView(page: page, context: context)
+                .frame(width: width, height: width / A4.aspectRatio)
+                .frame(width: width, height: visible * width / A4.size.width, alignment: .top)
+                .clipped()
+        }
+        .aspectRatio(A4.size.width / visible, contentMode: .fit)
     }
 }

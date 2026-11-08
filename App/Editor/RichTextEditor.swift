@@ -10,6 +10,7 @@ struct RichTextEditor: UIViewRepresentable {
     let revision: Int
     let typingAttributes: [NSAttributedString.Key: Any]
     let tint: UIColor
+    var spellCheck = true
 
     func makeCoordinator() -> Coordinator {
         Coordinator(controller: controller)
@@ -28,6 +29,8 @@ struct RichTextEditor: UIViewRepresentable {
         textView.keyboardDismissMode = .interactive
         textView.alwaysBounceVertical = true
         textView.adjustsFontForContentSizeCategory = false
+        textView.spellCheckingType = spellCheck ? .yes : .no
+        textView.autocorrectionType = spellCheck ? .default : .no
         textView.attributedText = content
         textView.typingAttributes = typingAttributes
         context.coordinator.appliedRevision = revision
@@ -38,6 +41,12 @@ struct RichTextEditor: UIViewRepresentable {
     func updateUIView(_ textView: UITextView, context: Context) {
         controller.attach(textView)
         textView.tintColor = tint
+        let spelling: UITextSpellCheckingType = spellCheck ? .yes : .no
+        if textView.spellCheckingType != spelling {
+            textView.spellCheckingType = spelling
+            textView.autocorrectionType = spellCheck ? .default : .no
+            if textView.isFirstResponder { textView.reloadInputViews() }
+        }
         guard context.coordinator.appliedRevision != revision else { return }
         context.coordinator.appliedRevision = revision
 
