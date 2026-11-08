@@ -192,6 +192,43 @@ final class ReportEditorViewModel: ObservableObject {
         }
     }
 
+    // MARK: - Free signature placement
+
+    var lastBodyPhysicalPage: Int { pagination.physicalPage(forBodyPage: pagination.lastBodyPage) }
+
+    func signatureLayout() -> PageRenderer.SignatureLayout {
+        PageRenderer.signatureLayout(report: report, spec: pagination.spec,
+                                     lastBodyPage: pagination.lastBodyPage, hasStamp: images.stamp != nil)
+    }
+
+    /// Moves an employee cell or the stamp by `delta` A4 points, keeping it on the page.
+    func moveSignatureElement(_ element: SignatureElement, by delta: CGSize) {
+        guard delta != .zero else { return }
+        var automatic = report
+        automatic.footer.resetPositions()
+        let base = PageRenderer.signatureLayout(report: automatic, spec: pagination.spec,
+                                                lastBodyPage: pagination.lastBodyPage, hasStamp: images.stamp != nil)
+        let current = signatureLayout()
+        let page = CGRect(origin: .zero, size: pagination.spec.pageSize)
+
+        switch element {
+        case .employee(let id):
+            guard let index = report.footer.employees.firstIndex(where: { $0.id == id }),
+                  let now = current.employees.first(where: { $0.id == id })?.rect,
+                  let origin = base.employees.first(where: { $0.id == id })?.rect else { return }
+            let target = PageRenderer.clamp(now.offsetBy(dx: delta.width, dy: delta.height), to: page)
+            report.footer.employees[index].offset = CGSize(width: target.minX - origin.minX, height: target.minY - origin.minY)
+        case .stamp:
+            guard let now = current.stamp, let origin = base.stamp else { return }
+            let target = PageRenderer.clamp(now.offsetBy(dx: delta.width, dy: delta.height), to: page)
+            report.footer.stampOffset = CGSize(width: target.minX - origin.minX, height: target.minY - origin.minY)
+        }
+    }
+
+    func resetSignaturePositions() {
+        report.footer.resetPositions()
+    }
+
     // MARK: - Custom frame
 
     func importFrameImage(_ data: Data) async {
@@ -294,4 +331,9 @@ final class ReportEditorViewModel: ObservableObject {
             return nil
         }
     }
+}
+
+enum SignatureElement: Hashable {
+    case employee(UUID)
+    case stamp
 }

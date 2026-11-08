@@ -12,12 +12,26 @@ struct SignatureStampView: View {
     @State private var signatureItem: PhotosPickerItem?
     @State private var stampItem: PhotosPickerItem?
     @State private var zoomPage: PageRef?
+    @State private var showPositionEditor = false
 
     var body: some View {
         Form {
             Section {
                 Toggle("إظهار الأسماء والتوقيعات في آخر صفحة", isOn: $vm.report.footer.showSignatureBlock)
                 if vm.report.footer.showSignatureBlock {
+                    Button {
+                        KeyboardHelper.dismiss()
+                        vm.repaginate()
+                        showPositionEditor = true
+                    } label: {
+                        Label("تحريك التوقيعات والختم بحرية", systemImage: "hand.draw")
+                    }
+                    .disabled(vm.report.footer.employees.isEmpty && vm.report.footer.stampPNG == nil)
+                    if vm.report.footer.hasCustomPositions {
+                        Button("إرجاع المواقع التلقائية", role: .destructive) {
+                            vm.resetSignaturePositions()
+                        }
+                    }
                     Button {
                         zoomPage = PageRef(id: vm.pagination.physicalPage(forBodyPage: vm.pagination.lastBodyPage))
                     } label: {
@@ -67,6 +81,9 @@ struct SignatureStampView: View {
         }
         .sheet(item: $zoomPage) { ref in
             PageZoomSheet(vm: vm, initialPage: ref.id)
+        }
+        .fullScreenCover(isPresented: $showPositionEditor) {
+            SignaturePositionEditor(vm: vm)
         }
         .photosPicker(isPresented: $showPhotoPicker, selection: $signatureItem, matching: .images)
         .onChange(of: signatureItem) { _, item in

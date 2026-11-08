@@ -89,9 +89,7 @@ enum PageRenderer {
         }
 
         if report.footer.showSignatureBlock && bodyPage == pagination.lastBodyPage {
-            let height = spec.signatureBlockHeight
-            let blockRect = CGRect(x: bodyRect.minX, y: bodyRect.maxY - height, width: bodyRect.width, height: height)
-            drawSignatureBlock(report: report, images: render.images, in: blockRect)
+            drawSignatureBlock(report: report, images: render.images, layout: signatureLayout(report: report, spec: spec, lastBodyPage: bodyPage, hasStamp: render.images.stamp != nil))
         }
 
         if report.page.showPageNumbers {
@@ -122,17 +120,19 @@ enum PageRenderer {
         TextDraw.draw(
             [header.topLine, header.ministry, header.generalAdministration, header.department],
             in: rightColumn,
-            font: BodyStyler.font(name: fontName, size: 12.5, bold: true),
+            font: BodyStyler.font(name: fontName, size: CGFloat(header.adminFontSize), bold: true),
             color: .black,
-            alignment: .center
+            alignment: .center,
+            shrinkToFit: true
         )
 
         TextDraw.draw(
             ArabicFormat.headerDateLines(header, numerals: report.page.numerals),
             in: leftColumn,
-            font: BodyStyler.font(name: fontName, size: 11.5, bold: false),
+            font: BodyStyler.font(name: fontName, size: CGFloat(header.dateFontSize), bold: false),
             color: .black,
-            alignment: .right
+            alignment: .right,
+            shrinkToFit: true
         )
 
         if let logo {
@@ -278,18 +278,31 @@ enum PageRenderer {
 
     // MARK: - Signature & stamp
 
-    /// Employees: one → centered; several → two per row, first on the right (RTL), then left;
-    /// an odd last employee is centered on its own row. The stamp sits between the columns.
-    private static func drawSignatureBlock(report: Report, images: RenderImages, in rect: CGRect) {
+    /// Final rectangles (in A4 points) of each employee cell and the stamp on the last page.
+    struct SignatureLayout {
+        var employees: [(id: UUID, rect: CGRect)]
+        var stamp: CGRect?
+    }
+
+    static let stampSide: CGFloat = 100
+
+    /// Automatic placement — one employee centered; several two per row, first on the right (RTL),
+    /// then left; an odd last one centered on its own row; stamp between the columns — then each
+    /// element is shifted by its user offset and kept inside the page.
+    static func signatureLayout(report: Report, spec: PageLayoutSpec, lastBodyPage: Int, hasStamp: Bool) -> SignatureLayout {
+        let bodyRect = spec.bodyRect(bodyPage: lastBodyPage)
+        let height = spec.signatureBlockHeight
+        let rect = CGRect(x: bodyRect.minX, y: bodyRect.maxY - height, width: bodyRect.width, height: height)
+        let page = CGRect(origin: .zero, size: spec.pageSize)
+
         let employees = report.footer.employees
         let rowHeight = PageLayoutSpec.employeeRowHeight
         let cellWidth = min(220, rect.width * 0.42)
-        let fontName = report.textStyle.fontName
+        var cells: [(id: UUID, rect: CGRect)] = []
         var firstCell: CGRect?
 
         for (index, employee) in employees.enumerated() {
-            let row = index / 2
-            let y = rect.minY + CGFloat(row) * rowHeight
+            let y = rect.minY + CGFloat(index / 2) * rowHeight
             let isAloneInRow = employees.count == 1 || (index == employees.count - 1 && index.isMultiple(of: 2))
             let x: CGFloat
             if isAloneInRow {
@@ -301,21 +314,44 @@ enum PageRenderer {
             }
             let cell = CGRect(x: x, y: y, width: cellWidth, height: rowHeight)
             if index == 0 { firstCell = cell }
-            drawEmployee(employee, signature: images.signatures[employee.id], in: cell, fontName: fontName)
+            cells.append((employee.id, clamp(cell.offsetBy(dx: employee.offset.width, dy: employee.offset.height), to: page)))
         }
 
-        guard let stamp = images.stamp else { return }
-        let side: CGFloat = 100
-        let center: CGPoint
-        if employees.count >= 2 {
-            center = CGPoint(x: rect.midX, y: rect.minY + rowHeight / 2 + 4)
-        } else if let cell = firstCell {
-            center = CGPoint(x: max(rect.minX + side / 2, cell.minX - side / 2 - 10), y: cell.midY)
-        } else {
-            center = CGPoint(x: rect.midX, y: rect.minY + side / 2 + 4)
+        var stampRect: CGRect?
+        if hasStamp {
+            let side = stampSide
+            let center: CGPoint
+            if employees.count >= 2 {
+                center = CGPoint(x: rect.midX, y: rect.minY + rowHeight / 2 + 4)
+            } else if let cell = firstCell {
+                center = CGPoint(x: max(rect.minX + side / 2, cell.minX - side / 2 - 10), y: cell.midY)
+            } else {
+                center = CGPoint(x: rect.midX, y: rect.minY + side / 2 + 4)
+            }
+            let box = CGRect(x: center.x - side / 2, y: center.y - side / 2, width: side, height: side)
+            let offset = report.footer.stampOffset
+            stampRect = clamp(box.offsetBy(dx: offset.width, dy: offset.height), to: page)
         }
-        let box = CGRect(x: center.x - side / 2, y: center.y - side / 2, width: side, height: side)
-        stamp.draw(in: Geometry.aspectFit(stamp.size, in: box), blendMode: .multiply, alpha: 0.92)
+        return SignatureLayout(employees: cells, stamp: stampRect)
+    }
+
+    /// Keeps `rect` fully inside `bounds` (with a small inset).
+    static func clamp(_ rect: CGRect, to bounds: CGRect) -> CGRect {
+        let inner = bounds.insetBy(dx: 8, dy: 8)
+        var result = rect
+        result.origin.x = min(max(result.minX, inner.minX), inner.maxX - result.width)
+        result.origin.y = min(max(result.minY, inner.minY), inner.maxY - result.height)
+        return result
+    }
+
+    private static func drawSignatureBlock(report: Report, images: RenderImages, layout: SignatureLayout) {
+        let fontName = report.textStyle.fontName
+        for (employee, cell) in zip(report.footer.employees, layout.employees) where employee.id == cell.id {
+            drawEmployee(employee, signature: images.signatures[employee.id], in: cell.rect, fontName: fontName)
+        }
+        if let stamp = images.stamp, let box = layout.stamp {
+            stamp.draw(in: Geometry.aspectFit(stamp.size, in: box), blendMode: .multiply, alpha: 0.92)
+        }
     }
 
     private static func drawEmployee(_ employee: Employee, signature: UIImage?, in cell: CGRect, fontName: String) {
@@ -352,10 +388,20 @@ enum TextDraw {
         color: UIColor,
         alignment: NSTextAlignment,
         lineSpacing: CGFloat = 3,
-        verticallyCentered: Bool = true
+        verticallyCentered: Bool = true,
+        shrinkToFit: Bool = false
     ) {
         let text = lines.map(\.trimmed).filter { !$0.isEmpty }.joined(separator: "\n")
         guard !text.isEmpty else { return }
+
+        // Reduce the size step by step until every line fits, so text never gets cut off.
+        var font = font
+        if shrinkToFit {
+            while font.pointSize > 6.5,
+                  measuredHeight(text, font: font, width: rect.width, lineSpacing: lineSpacing) > rect.height {
+                font = font.withSize(font.pointSize - 0.5)
+            }
+        }
 
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = alignment
@@ -382,5 +428,19 @@ enum TextDraw {
             target.size.height = height + 1
         }
         attributed.draw(with: target, options: options.union(.truncatesLastVisibleLine), context: nil)
+    }
+
+    private static func measuredHeight(_ text: String, font: UIFont, width: CGFloat, lineSpacing: CGFloat) -> CGFloat {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.baseWritingDirection = .rightToLeft
+        paragraph.lineSpacing = lineSpacing
+        paragraph.lineBreakMode = .byWordWrapping
+        let attributed = NSAttributedString(string: text, attributes: [.font: font, .paragraphStyle: paragraph])
+        let bounds = attributed.boundingRect(
+            with: CGSize(width: width, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            context: nil
+        )
+        return ceil(bounds.height)
     }
 }

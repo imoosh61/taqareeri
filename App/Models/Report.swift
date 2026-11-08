@@ -93,6 +93,22 @@ struct HeaderInfo: Codable, Equatable {
     var showDayName = true
     var referenceNumber = ""
     var attachments = ""
+    // Optional so older saved reports (without these keys) still decode.
+    var adminFontSizeValue: Double?
+    var dateFontSizeValue: Double?
+
+    static let defaultAdminFontSize = 12.5
+    static let defaultDateFontSize = 11.5
+
+    var adminFontSize: Double {
+        get { adminFontSizeValue ?? Self.defaultAdminFontSize }
+        set { adminFontSizeValue = newValue }
+    }
+
+    var dateFontSize: Double {
+        get { dateFontSizeValue ?? Self.defaultDateFontSize }
+        set { dateFontSizeValue = newValue }
+    }
 }
 
 struct TextStyleSettings: Codable, Equatable {
@@ -128,6 +144,17 @@ struct Employee: Identifiable, Codable, Equatable {
     var label = "اسم الموظف"
     var name = ""
     var signaturePNG: Data?
+    /// Free-placement offset from the automatic position, in A4 points (nil = automatic).
+    var offsetX: Double?
+    var offsetY: Double?
+
+    var offset: CGSize {
+        get { CGSize(width: offsetX ?? 0, height: offsetY ?? 0) }
+        set {
+            offsetX = newValue.width == 0 ? nil : Double(newValue.width)
+            offsetY = newValue.height == 0 ? nil : Double(newValue.height)
+        }
+    }
 }
 
 /// Names & signatures block on the last page.
@@ -136,11 +163,22 @@ struct FooterSettings: Codable, Equatable {
     var showSignatureBlock = false
     var employees: [Employee] = []
     var stampPNG: Data?
+    /// Free-placement offset of the stamp, in A4 points.
+    var stampOffset: CGSize = .zero
+
+    var hasCustomPositions: Bool {
+        stampOffset != .zero || employees.contains { $0.offset != .zero }
+    }
+
+    mutating func resetPositions() {
+        stampOffset = .zero
+        for index in employees.indices { employees[index].offset = .zero }
+    }
 
     init() {}
 
     private enum CodingKeys: String, CodingKey {
-        case showSignatureBlock, employees, stampPNG
+        case showSignatureBlock, employees, stampPNG, stampOffsetX, stampOffsetY
         // Version 1.0 fields (single signer), migrated on load.
         case signerTitle, signerName, signaturePNG
     }
@@ -149,6 +187,10 @@ struct FooterSettings: Codable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         showSignatureBlock = try container.decodeIfPresent(Bool.self, forKey: .showSignatureBlock) ?? false
         stampPNG = try container.decodeIfPresent(Data.self, forKey: .stampPNG)
+        stampOffset = CGSize(
+            width: try container.decodeIfPresent(Double.self, forKey: .stampOffsetX) ?? 0,
+            height: try container.decodeIfPresent(Double.self, forKey: .stampOffsetY) ?? 0
+        )
         if let employees = try container.decodeIfPresent([Employee].self, forKey: .employees) {
             self.employees = employees
         } else {
@@ -166,6 +208,10 @@ struct FooterSettings: Codable, Equatable {
         try container.encode(showSignatureBlock, forKey: .showSignatureBlock)
         try container.encode(employees, forKey: .employees)
         try container.encodeIfPresent(stampPNG, forKey: .stampPNG)
+        if stampOffset != .zero {
+            try container.encode(Double(stampOffset.width), forKey: .stampOffsetX)
+            try container.encode(Double(stampOffset.height), forKey: .stampOffsetY)
+        }
     }
 }
 

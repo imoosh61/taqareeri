@@ -40,11 +40,21 @@ struct HeaderEditorView: View {
 
             logoSection
 
-            Section("الجانب الأيمن — البيانات الإدارية") {
+            Section {
                 TextField("السطر العلوي", text: $vm.report.header.topLine)
                 TextField("اسم الوزارة / الجهة", text: $vm.report.header.ministry)
                 TextField("الإدارة العامة", text: $vm.report.header.generalAdministration)
                 TextField("القسم", text: $vm.report.header.department)
+                FontSizeSlider(
+                    title: "حجم خط البيانات الإدارية",
+                    value: $vm.report.header.adminFontSize,
+                    defaultValue: HeaderInfo.defaultAdminFontSize,
+                    numerals: vm.report.page.numerals
+                )
+            } header: {
+                Text("الجانب الأيمن — البيانات الإدارية")
+            } footer: {
+                Text("إذا كان النص أطول من المساحة يُصغَّر الخط تلقائياً حتى لا يختفي أي سطر.")
             }
 
             Section {
@@ -53,6 +63,12 @@ struct HeaderEditorView: View {
                     ForEach(DateMode.allCases) { Text($0.title).tag($0) }
                 }
                 Toggle("إظهار اليوم", isOn: $vm.report.header.showDayName)
+                FontSizeSlider(
+                    title: "حجم خط التاريخ والرقم",
+                    value: $vm.report.header.dateFontSize,
+                    defaultValue: HeaderInfo.defaultDateFontSize,
+                    numerals: vm.report.page.numerals
+                )
                 TextField("الرقم المرجعي", text: $vm.report.header.referenceNumber)
                 TextField("المرفقات (اختياري)", text: $vm.report.header.attachments)
                 Picker("شكل الأرقام", selection: $vm.report.page.numerals) {
@@ -212,5 +228,40 @@ struct HeaderEditorView: View {
         } footer: {
             Text("التفريغ الذكي يزيل الخلفية البيضاء المتصلة بأطراف الصورة فقط ويحافظ على الأجزاء البيضاء داخل الشعار.")
         }
+    }
+}
+
+/// Font size slider with live value and a reset-to-default button.
+struct FontSizeSlider: View {
+    let title: String
+    @Binding var value: Double
+    let defaultValue: Double
+    let numerals: NumeralStyle
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(title)
+                Spacer()
+                Text(ArabicFormat.number(Int(value.rounded()), numerals))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                if value != defaultValue {
+                    Button {
+                        value = defaultValue
+                    } label: {
+                        Image(systemName: "arrow.counterclockwise")
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel("الحجم الافتراضي")
+                }
+            }
+            HStack(spacing: 10) {
+                Image(systemName: "textformat.size.smaller").foregroundStyle(.secondary)
+                Slider(value: $value, in: 7...20, step: 0.5)
+                Image(systemName: "textformat.size.larger").foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 4)
     }
 }
