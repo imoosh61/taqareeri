@@ -96,10 +96,19 @@ struct HeaderInfo: Codable, Equatable {
     // Optional so older saved reports (without these keys) still decode.
     var adminFontSizeValue: Double?
     var dateFontSizeValue: Double?
+    var logoScaleValue: Double?
     var adminOffsetValue: Double?
     var dateOffsetValue: Double?
     var adminAlignmentValue: ParagraphAlignment?
     var dateAlignmentValue: ParagraphAlignment?
+
+    static let logoScaleRange = 0.4...1.6
+
+    /// Logo size relative to the default (1 = 100%).
+    var logoScale: Double {
+        get { logoScaleValue ?? 1 }
+        set { logoScaleValue = newValue == 1 ? nil : newValue }
+    }
 
     /// Horizontal shift of each header block in points (+ = right, − = left).
     var adminOffset: Double {

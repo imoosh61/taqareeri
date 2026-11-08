@@ -109,7 +109,7 @@ enum PageRenderer {
     static func drawHeader(report: Report, logo: UIImage?, in rect: CGRect, accent: UIColor) {
         let header = report.header
         let content = CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: rect.height - 14)
-        let logoSide = min(content.height, 104)
+        let logoSide = min(104 * CGFloat(header.logoScale), content.height + 30)
         let gap: CGFloat = 10
         let columnWidth = (content.width - logoSide - gap * 2) / 2
 
@@ -148,7 +148,9 @@ enum PageRenderer {
         )
 
         if let logo {
-            let box = CGRect(x: content.midX - logoSide / 2, y: content.midY - logoSide / 2, width: logoSide, height: logoSide)
+            // Larger logos grow downward past the header line rather than above the page edge.
+            let top = logoSide > content.height ? content.minY : content.midY - logoSide / 2
+            let box = CGRect(x: content.midX - logoSide / 2, y: top, width: logoSide, height: logoSide)
             logo.draw(in: Geometry.aspectFit(logo.size, in: box))
         }
 
@@ -221,9 +223,10 @@ enum PageRenderer {
         var y: CGFloat = 110
 
         if let logo = images.logo {
-            let box = CGRect(x: page.midX - 85, y: y, width: 170, height: 170)
+            let side = 170 * CGFloat(min(report.header.logoScale, 1.3))
+            let box = CGRect(x: page.midX - side / 2, y: y, width: side, height: side)
             logo.draw(in: Geometry.aspectFit(logo.size, in: box))
-            y += 185
+            y += side + 15
         } else {
             y += 60
         }

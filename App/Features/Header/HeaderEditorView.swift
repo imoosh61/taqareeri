@@ -219,6 +219,36 @@ struct HeaderEditorView: View {
             }
             .padding(.vertical, 4)
 
+            if vm.report.header.logoPNG != nil {
+                HeaderStripPreview(page: vm.firstBodyPhysicalPage, context: vm.renderContext)
+                    .listRowInsets(EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8))
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("حجم الشعار")
+                        Spacer()
+                        Text("\(ArabicFormat.number(Int((vm.report.header.logoScale * 100).rounded()), vm.report.page.numerals))٪")
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                        if vm.report.header.logoScale != 1 {
+                            Button {
+                                vm.report.header.logoScale = 1
+                            } label: {
+                                Image(systemName: "arrow.counterclockwise")
+                            }
+                            .buttonStyle(.borderless)
+                            .accessibilityLabel("الحجم الافتراضي")
+                        }
+                    }
+                    HStack(spacing: 10) {
+                        Image(systemName: "minus.magnifyingglass").foregroundStyle(.secondary)
+                        Slider(value: $vm.report.header.logoScale, in: HeaderInfo.logoScaleRange, step: 0.05)
+                        Image(systemName: "plus.magnifyingglass").foregroundStyle(.secondary)
+                    }
+                    .environment(\.layoutDirection, .leftToRight)
+                }
+                .padding(.vertical, 4)
+            }
+
             PhotosPicker(selection: $logoItem, matching: .images) {
                 Label(vm.report.header.logoPNG == nil ? "رفع الشعار من الصور" : "تغيير الشعار", systemImage: "photo.badge.plus")
             }
