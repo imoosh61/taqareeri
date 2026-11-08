@@ -31,9 +31,12 @@ struct LibraryView: View {
                 Section {
                     LabeledContent("التطبيق", value: "تقاريري")
                     LabeledContent("الإصدار", value: AppInfo.version)
-                    LabeledContent("تطوير") {
-                        Text(AppInfo.developer)
-                            .environment(\.layoutDirection, .leftToRight)
+                    LabeledContent("تطوير", value: AppInfo.developer)
+                    Link(destination: AppInfo.emailURL) {
+                        LabeledContent("مراسلة المطوّر") {
+                            Label(AppInfo.email, systemImage: "envelope.fill")
+                                .environment(\.layoutDirection, .leftToRight)
+                        }
                     }
                     Text("تُحفظ المسودات تلقائياً على جهازك، وتظهر في تطبيق «الملفات» داخل مجلد التطبيق. استخدم النسخ الاحتياطي لحفظ نسخة في iCloud Drive.")
                         .font(.footnote)

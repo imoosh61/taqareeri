@@ -37,7 +37,9 @@ struct PageRenderContext {
 /// The same code path renders on-screen previews and the vector PDF.
 @MainActor
 enum PageRenderer {
-    static func draw(page: Int, context render: PageRenderContext, in ctx: CGContext) {
+    /// - Parameter includeBody: false draws only the page furniture (frame, letterhead, addressee,
+    ///   signatures, page number) — used behind the live on-page editor.
+    static func draw(page: Int, context render: PageRenderContext, in ctx: CGContext, includeBody: Bool = true) {
         let report = render.report
         let pagination = render.pagination
         let pageRect = CGRect(origin: .zero, size: pagination.spec.pageSize)
@@ -63,13 +65,13 @@ enum PageRenderer {
         case .cover:
             drawCover(report: report, images: render.images, page: pageRect, accent: accent)
         case .body(let bodyPage):
-            drawBodyPage(bodyPage, render: render, accent: accent)
+            drawBodyPage(bodyPage, render: render, accent: accent, includeBody: includeBody)
         }
     }
 
     // MARK: - Body pages
 
-    private static func drawBodyPage(_ bodyPage: Int, render: PageRenderContext, accent: UIColor) {
+    private static func drawBodyPage(_ bodyPage: Int, render: PageRenderContext, accent: UIColor, includeBody: Bool) {
         let report = render.report
         let pagination = render.pagination
         let spec = pagination.spec
@@ -83,7 +85,7 @@ enum PageRenderer {
         }
 
         let bodyRect = spec.bodyRect(bodyPage: bodyPage)
-        if let range = pagination.glyphRange(forBodyPage: bodyPage), range.length > 0 {
+        if includeBody, let range = pagination.glyphRange(forBodyPage: bodyPage), range.length > 0 {
             pagination.layoutManager.drawBackground(forGlyphRange: range, at: bodyRect.origin)
             pagination.layoutManager.drawGlyphs(forGlyphRange: range, at: bodyRect.origin)
         }
@@ -175,8 +177,8 @@ enum PageRenderer {
     private static func drawAddressee(report: Report, in rect: CGRect) {
         let addressee = report.addressee
         let fontName = report.textStyle.fontName
-        let size = CGFloat(min(max(report.textStyle.fontSize, 11), 24))
-        let lineHeight = PageLayoutSpec.addresseeLineHeight(fontSize: report.textStyle.fontSize)
+        let size = CGFloat(report.addresseeFontSize)
+        let lineHeight = PageLayoutSpec.addresseeLineHeight(fontSize: report.addresseeFontSize)
         let bold = BodyStyler.font(name: fontName, size: size, bold: true)
         let regular = BodyStyler.font(name: fontName, size: size, bold: false)
         var y = rect.minY

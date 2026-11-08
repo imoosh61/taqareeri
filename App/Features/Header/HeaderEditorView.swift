@@ -175,6 +175,16 @@ struct HeaderEditorView: View {
             if vm.report.addressee.isEnabled {
                 TextField("المخاطَب (مثال: سعادة مدير إدارة المساجد بالحرث)", text: $vm.report.addressee.recipientTitle, axis: .vertical)
                 TextField("اسم المسؤول (مثال: الأستاذ/ ...)", text: $vm.report.addressee.recipientName)
+                FontSizeSlider(
+                    title: "حجم خط المخاطَب والاسم",
+                    value: Binding(
+                        get: { vm.report.addresseeFontSize },
+                        set: { vm.report.addressee.fontSizeValue = $0 }
+                    ),
+                    defaultValue: min(max(vm.report.textStyle.fontSize, 11), 24),
+                    numerals: vm.report.page.numerals,
+                    range: 9...30
+                )
 
                 Toggle("إظهار عبارة التبجيل في يسار السطر", isOn: $vm.report.addressee.showHonorific)
                 if vm.report.addressee.showHonorific {
@@ -281,6 +291,7 @@ struct FontSizeSlider: View {
     @Binding var value: Double
     let defaultValue: Double
     let numerals: NumeralStyle
+    var range: ClosedRange<Double> = 7...20
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -302,7 +313,7 @@ struct FontSizeSlider: View {
             }
             HStack(spacing: 10) {
                 Image(systemName: "textformat.size.smaller").foregroundStyle(.secondary)
-                Slider(value: $value, in: 7...20, step: 0.5)
+                Slider(value: $value, in: range, step: 0.5)
                 Image(systemName: "textformat.size.larger").foregroundStyle(.secondary)
             }
         }

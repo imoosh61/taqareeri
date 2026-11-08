@@ -5,6 +5,7 @@ import UIKit
 final class PageCanvasView: UIView {
     private var page = 0
     private var context: PageRenderContext?
+    private var includeBody = true
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -20,15 +21,17 @@ final class PageCanvasView: UIView {
         fatalError("init(coder:) is not supported")
     }
 
-    func update(page: Int, context: PageRenderContext) {
+    func update(page: Int, context: PageRenderContext, includeBody: Bool = true) {
         if let old = self.context,
            old.pagination === context.pagination,
            self.page == page,
+           self.includeBody == includeBody,
            old.report == context.report {
             return
         }
         self.page = page
         self.context = context
+        self.includeBody = includeBody
         setNeedsDisplay()
     }
 
@@ -42,7 +45,7 @@ final class PageCanvasView: UIView {
         cg.saveGState()
         let scale = bounds.width / A4.size.width
         cg.scaleBy(x: scale, y: scale)
-        PageRenderer.draw(page: page, context: context, in: cg)
+        PageRenderer.draw(page: page, context: context, in: cg, includeBody: includeBody)
         cg.restoreGState()
     }
 }

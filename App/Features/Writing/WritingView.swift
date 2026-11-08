@@ -14,33 +14,15 @@ struct WritingView: View {
     @State private var zoomPage: PageRef?
     @State private var keyboardVisible = false
     @State private var previewExpanded = true
+    @AppStorage("editor.pageMode") private var pageMode = true
 
     var body: some View {
-        VStack(spacing: 0) {
-            FormattingToolbar(
-                vm: vm,
-                onShowSettings: { showTextSettings = true },
-                onDictation: { showDictation = true },
-                onSections: { showSections = true },
-                onAI: { showAI = true },
-                onFormat: { showFormat = true }
-            )
-
-            RichTextEditor(
-                controller: vm.richText,
-                content: vm.bodyText,
-                revision: vm.bodyRevision,
-                typingAttributes: vm.typingAttributes,
-                tint: theme.accentUIColor,
-                spellCheck: liveSpellCheck
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 12))
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.black.opacity(0.08)))
-            .shadow(color: .black.opacity(0.06), radius: 4, y: 1)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-
-            livePreview
+        Group {
+            if pageMode {
+                pageEditor
+            } else {
+                classicEditor
+            }
         }
         .background(Color(.systemGroupedBackground))
         .sheet(isPresented: $showTextSettings) {
@@ -69,6 +51,71 @@ struct WritingView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
             keyboardVisible = false
+        }
+    }
+
+    private var toolbar: FormattingToolbar {
+        FormattingToolbar(
+            vm: vm,
+            onShowSettings: { showTextSettings = true },
+            onDictation: { showDictation = true },
+            onSections: { showSections = true },
+            onAI: { showAI = true },
+            onFormat: { showFormat = true },
+            pageMode: pageMode,
+            onToggleMode: {
+                KeyboardHelper.dismiss()
+                pageMode.toggle()
+            }
+        )
+    }
+
+    /// Writing directly on the A4 pages; all tools sit underneath.
+    private var pageEditor: some View {
+        VStack(spacing: 0) {
+            PageEditor(
+                controller: vm.richText,
+                content: vm.bodyText,
+                revision: vm.bodyRevision,
+                typingAttributes: vm.typingAttributes,
+                tint: theme.accentUIColor,
+                spellCheck: liveSpellCheck,
+                context: vm.renderContext,
+                report: vm.report
+            )
+            .overlay(alignment: .topLeading) {
+                Text(vm.pageLabel(forPhysicalPage: vm.cursorPhysicalPage))
+                    .font(.caption2.weight(.semibold))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .padding(10)
+                    .allowsHitTesting(false)
+            }
+            Divider()
+            toolbar
+        }
+    }
+
+    private var classicEditor: some View {
+        VStack(spacing: 0) {
+            toolbar
+
+            RichTextEditor(
+                controller: vm.richText,
+                content: vm.bodyText,
+                revision: vm.bodyRevision,
+                typingAttributes: vm.typingAttributes,
+                tint: theme.accentUIColor,
+                spellCheck: liveSpellCheck
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.black.opacity(0.08)))
+            .shadow(color: .black.opacity(0.06), radius: 4, y: 1)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+
+            livePreview
         }
     }
 
@@ -112,10 +159,21 @@ struct FormattingToolbar: View {
     let onSections: () -> Void
     let onAI: () -> Void
     let onFormat: () -> Void
+    var pageMode = false
+    var onToggleMode: (() -> Void)?
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
+                if let onToggleMode {
+                    tool(pageMode ? "doc.plaintext" : "doc.richtext",
+                         pageMode ? "وضع النص البسيط" : "الكتابة على الصفحة",
+                         action: onToggleMode)
+                }
+                if pageMode {
+                    tool("plus.magnifyingglass", "تكبير / ملاءمة الصفحة") { vm.richText.zoomToggle?() }
+                }
+                if onToggleMode != nil || pageMode { divider }
                 Button(action: onAI) {
                     Label("الذكاء الاصطناعي", systemImage: "sparkles")
                         .font(.system(size: 15, weight: .semibold))

@@ -44,7 +44,7 @@ struct PageLayoutSpec {
     }
 
     static func addresseeLineHeight(fontSize: Double) -> CGFloat {
-        CGFloat(min(max(fontSize, 11), 24)) * 1.9
+        CGFloat(fontSize) * 1.9
     }
 
     static func addresseeHeight(for report: Report) -> CGFloat {
@@ -55,7 +55,7 @@ struct PageLayoutSpec {
         if !addressee.recipientName.trimmed.isEmpty || (addressee.showHonorific && !addressee.honorific.trimmed.isEmpty) { lines += 1 }
         if addressee.showGreeting && !addressee.greeting.trimmed.isEmpty { lines += 1 }
         guard lines > 0 else { return 0 }
-        return CGFloat(lines) * addresseeLineHeight(fontSize: report.textStyle.fontSize) + 14
+        return CGFloat(lines) * addresseeLineHeight(fontSize: report.addresseeFontSize) + 14
     }
 
     var addresseeRect: CGRect {

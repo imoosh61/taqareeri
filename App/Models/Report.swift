@@ -349,6 +349,8 @@ struct AddresseeSettings: Codable, Equatable {
     var honorific = "حفظه الله"
     var showGreeting = true
     var greeting = "السلام عليكم ورحمة الله وبركاته، وبعد:"
+    /// nil = follow the report text size.
+    var fontSizeValue: Double?
 
     static let honorificSuggestions = ["حفظه الله", "حفظها الله", "وفقه الله", "وفقها الله", "سلمه الله", "المحترم", "المحترمة"]
 }
@@ -370,6 +372,11 @@ struct Report: Identifiable, Codable, Equatable {
     /// Optional so reports saved by earlier versions (without this key) still decode.
     var addresseeStorage: AddresseeSettings?
     var autoFormatStorage: Bool?
+
+    /// Font size of the addressee block (custom, or derived from the body text size).
+    var addresseeFontSize: Double {
+        addressee.fontSizeValue ?? min(max(textStyle.fontSize, 11), 24)
+    }
 
     /// Tidy spaces & punctuation automatically before preview and export.
     var autoFormat: Bool {

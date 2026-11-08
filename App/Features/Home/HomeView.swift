@@ -56,11 +56,16 @@ struct HomeView: View {
                 } header: {
                     Text("المسودات")
                 } footer: {
-                    Text("تطوير \(AppInfo.developer)")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, 24)
+                    VStack(spacing: 4) {
+                        Text("تطوير \(AppInfo.developer) • الإصدار \(AppInfo.version)")
+                            .foregroundStyle(.tertiary)
+                        Link(destination: AppInfo.emailURL) {
+                            Label(AppInfo.email, systemImage: "envelope")
+                        }
+                    }
+                    .font(.caption2)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 24)
                 }
             }
             .navigationTitle("تقاريري")

@@ -8,6 +8,8 @@ final class RichTextController {
     var settingsProvider: () -> TextStyleSettings = { TextStyleSettings() }
     var onTextChanged: (NSAttributedString) -> Void = { _ in }
     var onSelectionChanged: (Int) -> Void = { _ in }
+    /// Set by the on-page editor: switches between fit-width and reading zoom.
+    var zoomToggle: (() -> Void)?
 
     func attach(_ textView: UITextView) {
         if self.textView !== textView { self.textView = textView }

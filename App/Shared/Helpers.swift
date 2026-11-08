@@ -4,13 +4,21 @@ import UIKit
 
 /// App identity & credits.
 enum AppInfo {
-    static let developer = "Mohammad Hakami - imoosh"
-    static let developerArabic = "محمد حكمي"
-    static let copyright = "© \(Calendar(identifier: .gregorian).component(.year, from: Date())) Mohammad Hakami - imoosh. جميع الحقوق محفوظة."
+    static let developer = "imoosh"
+    static let email = "imoosh61@outlook.sa"
+    static let copyright = "© \(Calendar(identifier: .gregorian).component(.year, from: Date())) imoosh. جميع الحقوق محفوظة."
+
     static var version: String {
-        let short = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
-        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "1"
-        return "\(short) (\(build))"
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.6"
+    }
+
+    /// Opens the user's mail app with a new message to the developer.
+    static var emailURL: URL {
+        var components = URLComponents()
+        components.scheme = "mailto"
+        components.path = email
+        components.queryItems = [URLQueryItem(name: "subject", value: "تطبيق تقاريري \(version)")]
+        return components.url ?? URL(string: "mailto:\(email)")!
     }
 }
 
