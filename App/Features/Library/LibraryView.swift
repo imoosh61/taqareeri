@@ -33,9 +33,22 @@ struct LibraryView: View {
                     LabeledContent("الإصدار", value: AppInfo.version)
                     LabeledContent("تطوير", value: AppInfo.developer)
                     Link(destination: AppInfo.emailURL) {
-                        LabeledContent("مراسلة المطوّر") {
-                            Label(AppInfo.email, systemImage: "envelope.fill")
-                                .environment(\.layoutDirection, .leftToRight)
+                        HStack(spacing: 12) {
+                            Image(systemName: "envelope.fill")
+                                .foregroundStyle(.tint)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("مراسلة المطوّر")
+                                    .foregroundStyle(.primary)
+                                Text(AppInfo.email)
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.8)
+                            }
+                            Spacer(minLength: 8)
+                            Image(systemName: "arrow.up.forward")
+                                .font(.footnote)
+                                .foregroundStyle(.tertiary)
                         }
                     }
                     Text("تُحفظ المسودات تلقائياً على جهازك، وتظهر في تطبيق «الملفات» داخل مجلد التطبيق. استخدم النسخ الاحتياطي لحفظ نسخة في iCloud Drive.")

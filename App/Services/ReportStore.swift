@@ -14,6 +14,7 @@ final class ReportStore: ObservableObject {
         return encoder
     }()
     private let decoder = JSONDecoder()
+    private let ioQueue = DispatchQueue(label: "com.imoosh61.officialreports.reports-io", qos: .utility)
 
     init(fileManager: FileManager = .default) {
         let documents = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
@@ -71,6 +72,28 @@ final class ReportStore: ObservableObject {
         } catch {
             errorMessage = "تعذر حفظ التقرير: \(error.localizedDescription)"
             return false
+        }
+    }
+
+    /// Updates the list immediately and writes the file on a background queue, so encoding large
+    /// images (logo, frame, signatures) never blocks the interface. Writes stay in order.
+    func saveInBackground(_ report: Report) {
+        if let index = reports.firstIndex(where: { $0.id == report.id }) {
+            reports[index] = report
+        } else {
+            reports.append(report)
+        }
+        reports.sort { $0.updatedAt > $1.updatedAt }
+
+        let url = fileURL(for: report.id)
+        ioQueue.async { [weak self] in
+            do {
+                let data = try JSONEncoder().encode(report)
+                try data.write(to: url, options: [.atomic])
+            } catch {
+                let message = "تعذر حفظ التقرير: \(error.localizedDescription)"
+                Task { @MainActor in self?.errorMessage = message }
+            }
         }
     }
 

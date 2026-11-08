@@ -76,12 +76,19 @@ final class ReportEditorViewModel: ObservableObject {
             .sink { [weak self] newValue in self?.reportWillChange(to: newValue) }
             .store(in: &cancellables)
 
-        let anyChange = Publishers.Merge($report.dropFirst().map { _ in () }, bodyChanged)
+        // Re-paginate only when something that moves text changed (not frame style/colour, logo, etc.).
+        let layoutChange = $report
+            .map(LayoutKey.init)
+            .removeDuplicates()
+            .dropFirst()
+            .map { _ in () }
 
-        anyChange
+        Publishers.Merge(layoutChange, bodyChanged)
             .debounce(for: .milliseconds(250), scheduler: RunLoop.main)
             .sink { [weak self] _ in self?.repaginate() }
             .store(in: &cancellables)
+
+        let anyChange = Publishers.Merge($report.dropFirst().map { _ in () }, bodyChanged)
 
         anyChange
             .debounce(for: .seconds(1), scheduler: RunLoop.main)
@@ -131,11 +138,8 @@ final class ReportEditorViewModel: ObservableObject {
         var snapshot = report
         snapshot.body = BodyStyler.document(from: bodyText, settings: report.textStyle)
         snapshot.updatedAt = Date()
-        if store.save(snapshot) {
-            hasUnsavedChanges = false
-        } else {
-            errorMessage = store.errorMessage
-        }
+        store.saveInBackground(snapshot)
+        hasUnsavedChanges = false
     }
 
     // MARK: - Images
@@ -392,4 +396,33 @@ final class ReportEditorViewModel: ObservableObject {
 enum SignatureElement: Hashable {
     case employee(UUID)
     case stamp
+}
+
+/// The parts of a report that affect where text falls on the pages.
+private struct LayoutKey: Equatable {
+    let textStyle: TextStyleSettings
+    let page: PageSettings
+    let headerEnabled: Bool
+    let headerPlacement: HeaderPlacement
+    let frameIsNone: Bool
+    let coverEnabled: Bool
+    let addressee: AddresseeSettings
+    let addresseeFontSize: Double
+    let signatureBlock: Bool
+    let employeeCount: Int
+    let hasStamp: Bool
+
+    init(_ report: Report) {
+        textStyle = report.textStyle
+        page = report.page
+        headerEnabled = report.header.isEnabled
+        headerPlacement = report.header.placement
+        frameIsNone = report.frame.style == .none
+        coverEnabled = report.cover.isEnabled
+        addressee = report.addressee
+        addresseeFontSize = report.addresseeFontSize
+        signatureBlock = report.footer.showSignatureBlock
+        employeeCount = report.footer.employees.count
+        hasStamp = report.footer.stampPNG != nil
+    }
 }
