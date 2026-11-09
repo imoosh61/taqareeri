@@ -39,7 +39,7 @@ final class ReportEditorViewModel: ObservableObject {
         let text = BodyStyler.attributedString(from: report.body, settings: report.textStyle)
         self.bodyText = text
         self.images = RenderImages(report: report)
-        self.pagination = Paginator.paginate(text, spec: PageLayoutSpec(report: report), hasCover: report.cover.isEnabled)
+        self.pagination = Self.paginate(text, report: report)
         configureRichText()
         bindPipelines()
     }
@@ -127,8 +127,18 @@ final class ReportEditorViewModel: ObservableObject {
     }
 
     func repaginate() {
-        pagination = Paginator.paginate(bodyText, spec: PageLayoutSpec(report: report), hasCover: report.cover.isEnabled)
+        pagination = Self.paginate(bodyText, report: report)
         updateCursorPage()
+    }
+
+    private static func paginate(_ text: NSAttributedString, report: Report) -> PaginationResult {
+        let spec = PageLayoutSpec(report: report)
+        return Paginator.paginate(
+            text,
+            spec: spec,
+            hasCover: report.cover.isEnabled,
+            exclusion: EvidenceLayout.exclusion(report: report, spec: spec)
+        )
     }
 
     // MARK: - Persistence
@@ -249,6 +259,82 @@ final class ReportEditorViewModel: ObservableObject {
         undoSnapshot = nil
         canUndoTextChange = false
         replaceBody(snapshot, keepUndo: false)
+    }
+
+    // MARK: - Evidence
+
+    func evidencePlacement() -> EvidenceLayout.Placement? {
+        EvidenceLayout.placement(report: report, spec: pagination.spec)
+    }
+
+    var canAddEvidence: Bool { report.evidence.items.count < EvidenceSettings.maxItems }
+
+    func addEvidencePhotos(_ sources: [Data]) async {
+        isProcessingImage = true
+        defer { isProcessingImage = false }
+        var failed = 0
+        for data in sources where canAddEvidence {
+            do {
+                let jpeg = try await ImageProcessor.photoJPEG(data)
+                report.evidence.items.append(EvidenceItem(kind: .photo, imageData: jpeg))
+            } catch {
+                failed += 1
+            }
+        }
+        report.evidence.isEnabled = true
+        if failed > 0 {
+            errorMessage = "تعذر إضافة \(failed) من الصور."
+        }
+    }
+
+    func addEvidenceQR(text: String, caption: String) {
+        let link = text.trimmed
+        guard canAddEvidence, !link.isEmpty else { return }
+        guard QRMatrix.make(link) != nil else {
+            errorMessage = "النص طويل جداً لرمز QR."
+            return
+        }
+        report.evidence.items.append(EvidenceItem(kind: .qr, qrText: link, caption: caption.trimmed))
+        report.evidence.isEnabled = true
+    }
+
+    func removeEvidence(_ id: UUID) {
+        report.evidence.items.removeAll { $0.id == id }
+    }
+
+    func moveEvidence(_ id: UUID, by offset: Int) {
+        guard let index = report.evidence.items.firstIndex(where: { $0.id == id }) else { return }
+        let target = index + offset
+        guard report.evidence.items.indices.contains(target) else { return }
+        report.evidence.items.swapAt(index, target)
+    }
+
+    func setEvidenceRect(_ rect: CGRect?) {
+        report.evidence.customRect = rect.map(EvidenceLayout.clamp)
+    }
+
+    // MARK: - Form fields
+
+    func addFormField() {
+        report.form.fields.append(FormField(label: "حقل جديد", width: .half))
+    }
+
+    func removeFormField(_ id: UUID) {
+        report.form.fields.removeAll { $0.id == id }
+    }
+
+    func moveFormField(_ id: UUID, by offset: Int) {
+        guard let index = report.form.fields.firstIndex(where: { $0.id == id }) else { return }
+        let target = index + offset
+        guard report.form.fields.indices.contains(target) else { return }
+        report.form.fields.swapAt(index, target)
+    }
+
+    func applyFormTemplate(_ template: FormTemplate) {
+        report.form.fields = template.makeFields(hijriYear: ArabicFormat.hijri(Date(), report.page.numerals))
+        if template.id != FormTemplate.blank.id {
+            report.title = template.title
+        }
     }
 
     // MARK: - Free signature placement
@@ -411,6 +497,10 @@ private struct LayoutKey: Equatable {
     let signatureBlock: Bool
     let employeeCount: Int
     let hasStamp: Bool
+    let kind: ReportKind
+    let evidenceVisible: Bool
+    let evidencePage: Int
+    let evidenceRect: CGRect?
 
     init(_ report: Report) {
         textStyle = report.textStyle
@@ -424,5 +514,9 @@ private struct LayoutKey: Equatable {
         signatureBlock = report.footer.showSignatureBlock
         employeeCount = report.footer.employees.count
         hasStamp = report.footer.stampPNG != nil
+        kind = report.kind
+        evidenceVisible = report.evidence.isVisible
+        evidencePage = report.evidence.pageIndex
+        evidenceRect = report.evidence.customRect
     }
 }

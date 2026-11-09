@@ -8,13 +8,33 @@ struct HomeView: View {
     @State private var path: [UUID] = []
     @State private var showLibrary = false
     @State private var pendingDelete: Report?
+    @State private var showFormPicker = false
+    @AppStorage("home.section") private var section: ReportKind = .text
+
+    private var visibleReports: [Report] {
+        store.reports.filter { $0.kind == section }
+    }
 
     var body: some View {
         NavigationStack(path: $path) {
             List {
                 Section {
+                    Picker("القسم", selection: $section) {
+                        ForEach(ReportKind.allCases) { Text($0.title).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+
                     Button(action: createReport) {
-                        NewReportCard(templateName: templates.defaultTemplate?.name, accent: theme.accent, secondary: theme.secondary)
+                        NewReportCard(
+                            title: section == .text ? "تقرير جديد (A4)" : "نموذج شواهد جديد",
+                            subtitle: section == .text
+                                ? (templates.defaultTemplate.map { "باستخدام قالب «\($0.name)»" } ?? "ترويسة، إطار، كتابة، ثم تصدير PDF")
+                                : "حقول جاهزة + صور وQR + توقيع المعلم والمدير",
+                            accent: theme.accent,
+                            secondary: theme.secondary
+                        )
                     }
                     .buttonStyle(.plain)
                     .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
@@ -22,14 +42,14 @@ struct HomeView: View {
                 }
 
                 Section {
-                    if store.reports.isEmpty {
+                    if visibleReports.isEmpty {
                         ContentUnavailableView(
-                            "لا توجد تقارير بعد",
-                            systemImage: "doc.text",
-                            description: Text("ابدأ بإنشاء تقرير جديد بمقاس A4.")
+                            section == .text ? "لا توجد تقارير بعد" : "لا توجد نماذج بعد",
+                            systemImage: section == .text ? "doc.text" : "list.bullet.rectangle",
+                            description: Text(section == .text ? "ابدأ بإنشاء تقرير جديد بمقاس A4." : "اختر قالباً جاهزاً مثل «إنجاز الدروس».")
                         )
                     }
-                    ForEach(store.reports) { report in
+                    ForEach(visibleReports) { report in
                         NavigationLink(value: report.id) {
                             ReportRow(report: report)
                         }
@@ -41,6 +61,11 @@ struct HomeView: View {
                             }
                         }
                         .contextMenu {
+                            Button {
+                                if let copy = store.duplicateAsNew(report.id) { path.append(copy.id) }
+                            } label: {
+                                Label("تقرير جديد من هذا (بدون صور)", systemImage: "doc.badge.plus")
+                            }
                             Button {
                                 store.duplicate(report.id)
                             } label: {
@@ -93,6 +118,12 @@ struct HomeView: View {
             .sheet(isPresented: $showLibrary) {
                 LibraryView()
             }
+            .sheet(isPresented: $showFormPicker) {
+                FormTemplatePicker { template in
+                    // Navigate after the sheet has closed.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { createForm(template) }
+                }
+            }
             .confirmationDialog(
                 "حذف «\(pendingDelete?.title ?? "")»؟",
                 isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }),
@@ -118,13 +149,23 @@ struct HomeView: View {
     }
 
     private func createReport() {
+        if section == .form {
+            showFormPicker = true
+            return
+        }
         let report = store.createReport(from: templates.defaultTemplate)
+        path.append(report.id)
+    }
+
+    private func createForm(_ template: FormTemplate) {
+        let report = store.createReport(from: templates.defaultTemplate, kind: .form, form: template)
         path.append(report.id)
     }
 }
 
 private struct NewReportCard: View {
-    let templateName: String?
+    let title: String
+    let subtitle: String
     let accent: Color
     let secondary: Color
 
@@ -143,10 +184,10 @@ private struct NewReportCard: View {
                     .foregroundStyle(accent)
             }
             VStack(alignment: .leading, spacing: 4) {
-                Text("تقرير جديد (A4)")
+                Text(title)
                     .font(.title3.weight(.bold))
                     .foregroundStyle(.white)
-                Text(templateName.map { "باستخدام قالب «\($0)»" } ?? "ترويسة، إطار، كتابة، ثم تصدير PDF")
+                Text(subtitle)
                     .font(.subheadline)
                     .foregroundStyle(.white.opacity(0.85))
             }
@@ -167,7 +208,7 @@ private struct ReportRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: "doc.text.fill")
+            Image(systemName: report.kind == .text ? "doc.text.fill" : "list.bullet.rectangle.fill")
                 .font(.title2)
                 .foregroundStyle(.tint)
             VStack(alignment: .leading, spacing: 3) {

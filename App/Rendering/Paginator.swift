@@ -80,7 +80,13 @@ final class PaginationResult {
 enum Paginator {
     static let maxPages = 300
 
-    static func paginate(_ text: NSAttributedString, spec: PageLayoutSpec, hasCover: Bool) -> PaginationResult {
+    /// - Parameter exclusion: an area on one page (A4 points) that text flows around, e.g. evidence.
+    static func paginate(
+        _ text: NSAttributedString,
+        spec: PageLayoutSpec,
+        hasCover: Bool,
+        exclusion: EvidenceLayout.Placement? = nil
+    ) -> PaginationResult {
         let storage = NSTextStorage(attributedString: text)
         let layoutManager = NSLayoutManager()
         let delegate = PageBreakLayoutDelegate()
@@ -91,12 +97,24 @@ enum Paginator {
         var containers: [NSTextContainer] = []
         var emptyStreak = 0
 
-        while containers.count < maxPages {
-            let rect = spec.bodyRect(bodyPage: containers.count)
+        func addContainer() {
+            let index = containers.count
+            let rect = spec.bodyRect(bodyPage: index)
             let container = NSTextContainer(size: rect.size)
             container.lineFragmentPadding = 0
+            if let exclusion, exclusion.page == index {
+                let local = exclusion.rect.offsetBy(dx: -rect.minX, dy: -rect.minY)
+                    .intersection(CGRect(origin: .zero, size: rect.size))
+                if !local.isNull, local.width > 0, local.height > 0 {
+                    container.exclusionPaths = [UIBezierPath(rect: local)]
+                }
+            }
             layoutManager.addTextContainer(container)
             containers.append(container)
+        }
+
+        while containers.count < maxPages {
+            addContainer()
 
             let range = layoutManager.glyphRange(for: container)
             let total = layoutManager.numberOfGlyphs
@@ -108,6 +126,13 @@ enum Paginator {
                 if emptyStreak >= 3 { break }
             } else {
                 emptyStreak = 0
+            }
+        }
+
+        // Make sure the page holding the evidence exists even when the text is shorter.
+        if let exclusion {
+            while containers.count <= exclusion.page && containers.count < maxPages {
+                addContainer()
             }
         }
 

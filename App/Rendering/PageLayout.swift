@@ -49,7 +49,7 @@ struct PageLayoutSpec {
 
     static func addresseeHeight(for report: Report) -> CGFloat {
         let addressee = report.addressee
-        guard addressee.isEnabled else { return 0 }
+        guard report.kind == .text, addressee.isEnabled else { return 0 }
         var lines = 0
         if !addressee.recipientTitle.trimmed.isEmpty { lines += 1 }
         if !addressee.recipientName.trimmed.isEmpty || (addressee.showHonorific && !addressee.honorific.trimmed.isEmpty) { lines += 1 }

@@ -6,6 +6,8 @@ struct RenderImages {
     var stamp: UIImage?
     var frame: UIImage?
     var signatures: [UUID: UIImage] = [:]
+    var evidencePhotos: [UUID: UIImage] = [:]
+    var qrCodes: [UUID: QRMatrix] = [:]
 
     init() {}
 
@@ -18,12 +20,25 @@ struct RenderImages {
                 signatures[employee.id] = image
             }
         }
+        for item in report.evidence.items {
+            switch item.kind {
+            case .photo:
+                if let data = item.imageData, let image = UIImage(data: data) {
+                    evidencePhotos[item.id] = image
+                }
+            case .qr:
+                if let matrix = QRMatrix.make(item.qrText) {
+                    qrCodes[item.id] = matrix
+                }
+            }
+        }
     }
 
     /// The image-bearing parts of a report; when unchanged, decoded images can be reused.
     static func sources(of report: Report) -> [Data?] {
         [report.header.logoPNG, report.footer.stampPNG, report.frame.customFramePNG]
             + report.footer.employees.map(\.signaturePNG)
+            + report.evidence.items.map { $0.kind == .photo ? $0.imageData : Data(($0.id.uuidString + $0.qrText).utf8) }
     }
 }
 
@@ -82,6 +97,14 @@ enum PageRenderer {
 
         if bodyPage == 0 && spec.addresseeHeight > 0 {
             drawAddressee(report: report, in: spec.addresseeRect)
+        }
+
+        if report.kind == .form && bodyPage == 0 {
+            FormRenderer.draw(report: report, spec: spec, accent: accent)
+        }
+
+        if let evidence = EvidenceLayout.placement(report: report, spec: spec), evidence.page == bodyPage {
+            EvidenceLayout.draw(report: report, images: render.images, in: evidence.rect, accent: accent)
         }
 
         let bodyRect = spec.bodyRect(bodyPage: bodyPage)

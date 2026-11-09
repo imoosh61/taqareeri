@@ -95,7 +95,9 @@ struct HeaderEditorView: View {
                 Text(ArabicFormat.headerDateLines(vm.report.header, numerals: vm.report.page.numerals).joined(separator: "\n"))
             }
 
-            addresseeSection
+            if vm.report.kind == .text {
+                addresseeSection
+            }
 
             Section {
                 Toggle("صفحة غلاف رسمية", isOn: $vm.report.cover.isEnabled)

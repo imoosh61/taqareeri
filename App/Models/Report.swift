@@ -372,6 +372,24 @@ struct Report: Identifiable, Codable, Equatable {
     /// Optional so reports saved by earlier versions (without this key) still decode.
     var addresseeStorage: AddresseeSettings?
     var autoFormatStorage: Bool?
+    var kindValue: ReportKind?
+    var formStorage: FormSettings?
+    var evidenceStorage: EvidenceSettings?
+
+    var kind: ReportKind {
+        get { kindValue ?? .text }
+        set { kindValue = newValue }
+    }
+
+    var form: FormSettings {
+        get { formStorage ?? FormSettings() }
+        set { formStorage = newValue }
+    }
+
+    var evidence: EvidenceSettings {
+        get { evidenceStorage ?? EvidenceSettings() }
+        set { evidenceStorage = newValue }
+    }
 
     /// Font size of the addressee block (custom, or derived from the body text size).
     var addresseeFontSize: Double {

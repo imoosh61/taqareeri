@@ -85,6 +85,14 @@ extension String {
 }
 
 enum Geometry {
+    /// Smallest rect with the image's aspect ratio that covers `box`, centered (crop to fill).
+    static func aspectFill(_ size: CGSize, in box: CGRect) -> CGRect {
+        guard size.width > 0, size.height > 0 else { return box }
+        let scale = max(box.width / size.width, box.height / size.height)
+        let filled = CGSize(width: size.width * scale, height: size.height * scale)
+        return CGRect(x: box.midX - filled.width / 2, y: box.midY - filled.height / 2, width: filled.width, height: filled.height)
+    }
+
     /// Largest rect with the image's aspect ratio that fits inside `box`, centered.
     static func aspectFit(_ size: CGSize, in box: CGRect) -> CGRect {
         guard size.width > 0, size.height > 0, box.width > 0, box.height > 0 else { return box }

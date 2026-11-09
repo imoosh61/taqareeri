@@ -97,7 +97,7 @@ final class ReportStore: ObservableObject {
         }
     }
 
-    func createReport(from template: HeaderTemplate?) -> Report {
+    func createReport(from template: HeaderTemplate?, kind: ReportKind = .text, form: FormTemplate? = nil) -> Report {
         var report = Report()
         if let template {
             var header = template.header
@@ -107,8 +107,43 @@ final class ReportStore: ObservableObject {
             report.header = header
             report.frame = template.frame
         }
+        if kind == .form {
+            let formTemplate = form ?? .blank
+            report.kind = .form
+            report.title = formTemplate.id == FormTemplate.blank.id ? "نموذج شواهد" : formTemplate.title
+            var settings = FormSettings()
+            settings.fields = formTemplate.makeFields(hijriYear: ArabicFormat.hijri(Date(), report.page.numerals))
+            report.form = settings
+            report.page.showPageNumbers = false
+            report.textStyle.fontSize = 13
+            var evidence = EvidenceSettings()
+            evidence.isEnabled = true
+            report.evidence = evidence
+            report.footer.showSignatureBlock = true
+            report.footer.employees = [
+                Employee(label: "معلم/ة المادة"),
+                Employee(label: "مدير/ة المدرسة")
+            ]
+        }
         save(report)
         return report
+    }
+
+    /// A fresh copy for the next report of the same kind: same content, today's date, no photos.
+    @discardableResult
+    func duplicateAsNew(_ id: UUID) -> Report? {
+        guard var copy = report(id: id) else { return nil }
+        copy.id = UUID()
+        copy.createdAt = Date()
+        copy.updatedAt = Date()
+        copy.header.date = Date()
+        copy.header.referenceNumber = ""
+        var evidence = copy.evidence
+        evidence.items = []
+        evidence.customRect = nil
+        copy.evidence = evidence
+        save(copy)
+        return copy
     }
 
     func duplicate(_ id: UUID) {

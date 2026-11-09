@@ -61,6 +61,30 @@ enum ImageProcessor {
         return try encodePNG(output)
     }
 
+    /// Downscaled, orientation-corrected JPEG for evidence photos.
+    static func photoJPEG(_ data: Data, maxPixelSize: Int = 1600, quality: Double = 0.82) async throws -> Data {
+        try await Task.detached(priority: .userInitiated) {
+            guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
+                throw ImageProcessingError.unreadable
+            }
+            let options: [CFString: Any] = [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceThumbnailMaxPixelSize: maxPixelSize
+            ]
+            guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+                throw ImageProcessingError.unreadable
+            }
+            let output = NSMutableData()
+            guard let destination = CGImageDestinationCreateWithData(output as CFMutableData, UTType.jpeg.identifier as CFString, 1, nil) else {
+                throw ImageProcessingError.encodingFailed
+            }
+            CGImageDestinationAddImage(destination, image, [kCGImageDestinationLossyCompressionQuality: quality] as CFDictionary)
+            guard CGImageDestinationFinalize(destination) else { throw ImageProcessingError.encodingFailed }
+            return output as Data
+        }.value
+    }
+
     // MARK: - Background removal
 
     private static func removeBackground(_ image: CGImage, floodFromEdges: Bool, trim: Bool) throws -> CGImage {

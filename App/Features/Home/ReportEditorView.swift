@@ -1,15 +1,36 @@
 import SwiftUI
 
 enum EditorTab: String, CaseIterable, Identifiable {
-    case header, frame, writing, signature, preview
+    case header, frame, writing, fields, evidence, signature, preview
     var id: String { rawValue }
     var title: String {
         switch self {
         case .header: return "الترويسة"
         case .frame: return "الإطار"
         case .writing: return "الكتابة"
+        case .fields: return "الحقول"
+        case .evidence: return "الشواهد"
         case .signature: return "التوقيع"
         case .preview: return "المعاينة"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .header: return "rectangle.topthird.inset.filled"
+        case .frame: return "square.dashed"
+        case .writing: return "text.alignright"
+        case .fields: return "list.bullet.rectangle"
+        case .evidence: return "photo.on.rectangle"
+        case .signature: return "signature"
+        case .preview: return "eye"
+        }
+    }
+
+    static func tabs(for kind: ReportKind) -> [EditorTab] {
+        switch kind {
+        case .text: return [.header, .frame, .writing, .evidence, .signature, .preview]
+        case .form: return [.header, .frame, .fields, .evidence, .signature, .preview]
         }
     }
 }
@@ -24,23 +45,25 @@ struct ReportEditorView: View {
 
     init(report: Report, store: ReportStore) {
         _vm = StateObject(wrappedValue: ReportEditorViewModel(report: report, store: store))
-        _tab = State(initialValue: report.body.isEmpty ? .header : .writing)
+        let start: EditorTab
+        switch report.kind {
+        case .text: start = report.body.isEmpty ? .header : .writing
+        case .form: start = .fields
+        }
+        _tab = State(initialValue: start)
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            Picker("القسم", selection: $tab) {
-                ForEach(EditorTab.allCases) { Text($0.title).tag($0) }
-            }
-            .pickerStyle(.segmented)
-            .padding(.horizontal)
-            .padding(.vertical, 8)
+            tabBar
 
             Group {
                 switch tab {
                 case .header: HeaderEditorView(vm: vm)
                 case .frame: FrameGalleryView(vm: vm)
                 case .writing: WritingView(vm: vm)
+                case .fields: FormFieldsView(vm: vm)
+                case .evidence: EvidenceEditorView(vm: vm)
                 case .signature: SignatureStampView(vm: vm)
                 case .preview: PreviewTabView(vm: vm, onExport: export)
                 }
@@ -88,6 +111,37 @@ struct ReportEditorView: View {
             if phase != .active { vm.saveNow() }
         }
         .onDisappear { vm.saveNow() }
+    }
+
+    /// Scrollable tab chips (six tabs do not fit a segmented control on a phone).
+    private var tabBar: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(EditorTab.tabs(for: vm.report.kind)) { item in
+                        let selected = tab == item
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.15)) { tab = item }
+                        } label: {
+                            Label(item.title, systemImage: item.icon)
+                                .font(.subheadline.weight(.semibold))
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 7)
+                                .background(Capsule().fill(selected ? Color.accentColor : Color(.secondarySystemBackground)))
+                                .foregroundStyle(selected ? Color.white : Color.primary)
+                        }
+                        .buttonStyle(.plain)
+                        .id(item)
+                    }
+                }
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+            }
+            .onChange(of: tab) { _, newTab in
+                withAnimation { proxy.scrollTo(newTab, anchor: .center) }
+            }
+        }
+        .background(.bar)
     }
 
     private func export() {

@@ -201,7 +201,8 @@ final class PageEditorView: UIView, UIScrollViewDelegate {
         layoutPages(count)
 
         for _ in 0..<10 {
-            container.exclusionPaths = (gapRects(count, spec: spec) + breaks).map { UIBezierPath(rect: $0) }
+            container.exclusionPaths = (gapRects(count, spec: spec) + evidenceRects(spec: spec, context: context) + breaks)
+                .map { UIBezierPath(rect: $0) }
             layoutManager.ensureLayout(for: container)
 
             let needed = max(pagesNeeded(spec: spec), minimumPages)
@@ -225,6 +226,20 @@ final class PageEditorView: UIView, UIScrollViewDelegate {
             rects.append(CGRect(x: 0, y: bottom - originY, width: spec.contentWidth, height: nextTop - bottom))
         }
         return rects
+    }
+
+    /// The evidence block's area in text-container coordinates.
+    private func evidenceRects(spec: PageLayoutSpec, context: PageRenderContext) -> [CGRect] {
+        guard let exclusion = EvidenceLayout.exclusion(report: context.report, spec: spec) else { return [] }
+        let body = spec.bodyRect(bodyPage: exclusion.page)
+        let local = exclusion.rect.intersection(body)
+        guard !local.isNull, local.height > 0 else { return [] }
+        return [CGRect(
+            x: local.minX - spec.marginHorizontal,
+            y: pageTop(exclusion.page) + local.minY - textView.frame.minY,
+            width: local.width,
+            height: local.height
+        )]
     }
 
     private func bodyPage(containingY y: CGFloat, spec: PageLayoutSpec, limit: Int) -> Int {
