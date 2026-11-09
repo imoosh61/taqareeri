@@ -21,6 +21,9 @@ struct LibraryView: View {
                     }
                 }
                 Section {
+                    NavigationLink { SecuritySettingsView() } label: {
+                        Label("الأمان والخصوصية", systemImage: "lock.shield")
+                    }
                     NavigationLink { AppearanceView() } label: {
                         Label("ألوان التطبيق والمظهر", systemImage: "paintpalette")
                     }
@@ -51,7 +54,7 @@ struct LibraryView: View {
                                 .foregroundStyle(.tertiary)
                         }
                     }
-                    Text("تُحفظ المسودات تلقائياً على جهازك، وتظهر في تطبيق «الملفات» داخل مجلد التطبيق. استخدم النسخ الاحتياطي لحفظ نسخة في iCloud Drive.")
+                    Text("تقاريرك محفوظة على جهازك فقط ومشفّرة، ولا تُرسل لأي خادم. استخدم النسخ الاحتياطي المشفّر لحفظ نسخة في iCloud Drive.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 } header: {
@@ -220,22 +223,28 @@ struct BackupView: View {
     @State private var shareItem: IdentifiedURL?
     @State private var showImporter = false
     @State private var message: String?
+    @State private var working = false
+
+    @State private var showCreate = false
+    @State private var password = ""
+    @State private var confirm = ""
+
+    @State private var pendingData: Data?
+    @State private var importPassword = ""
 
     var body: some View {
         List {
             Section {
                 Button {
-                    do {
-                        let url = try BackupService.makeBackupFile(reports: store.reports, templates: templates.templates)
-                        shareItem = IdentifiedURL(url: url)
-                    } catch {
-                        message = "تعذر إنشاء النسخة: \(error.localizedDescription)"
-                    }
+                    password = ""
+                    confirm = ""
+                    showCreate = true
                 } label: {
-                    Label("إنشاء نسخة احتياطية", systemImage: "square.and.arrow.up")
+                    Label("إنشاء نسخة احتياطية مشفّرة", systemImage: "lock.doc")
                 }
+                .disabled(working)
             } footer: {
-                Text("اختر «حفظ في الملفات» ثم iCloud Drive لحفظ نسختك سحابياً.")
+                Text("تُشفَّر النسخة بكلمة مرور تختارها (AES-256). احفظها في «الملفات» ثم iCloud Drive. لا يمكن فتح النسخة بدون كلمة المرور، فاحفظها جيداً.")
             }
 
             Section {
@@ -244,31 +253,111 @@ struct BackupView: View {
                 } label: {
                     Label("استعادة من نسخة احتياطية", systemImage: "square.and.arrow.down")
                 }
+                .disabled(working)
             } footer: {
                 Text("تُدمج التقارير مع الموجودة؛ ويُحتفظ بالنسخة الأحدث عند التكرار.")
             }
+
+            if working {
+                HStack {
+                    ProgressView()
+                    Text("جارٍ التنفيذ…").foregroundStyle(.secondary)
+                }
+            }
         }
         .navigationTitle("النسخ الاحتياطي")
-        .sheet(item: $shareItem) { item in
+        .sheet(item: $shareItem, onDismiss: TempFiles.cleanup) { item in
             ShareSheet(items: [item.url])
         }
-        .fileImporter(isPresented: $showImporter, allowedContentTypes: [.json]) { result in
+        .sheet(isPresented: $showCreate) {
+            NavigationStack {
+                Form {
+                    Section {
+                        SecureField("كلمة المرور", text: $password)
+                        SecureField("تأكيد كلمة المرور", text: $confirm)
+                    } footer: {
+                        Text("٦ أحرف على الأقل. لن تستطيع استعادة النسخة إذا نسيتها.")
+                    }
+                }
+                .navigationTitle("كلمة مرور النسخة")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("إلغاء") { showCreate = false }
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("إنشاء") {
+                            showCreate = false
+                            createBackup()
+                        }
+                        .disabled(password.count < BackupService.minimumPasswordLength || password != confirm)
+                    }
+                }
+            }
+            .presentationDetents([.medium])
+        }
+        .fileImporter(isPresented: $showImporter, allowedContentTypes: [.data, .json]) { result in
             switch result {
             case .success(let url):
                 do {
-                    let bundle = try BackupService.readBackup(from: url)
-                    let reports = store.merge(bundle.reports)
-                    let added = templates.merge(bundle.templates)
-                    message = "تمت استعادة \(reports) تقرير و\(added) قالب."
+                    let data = try BackupService.readFile(url)
+                    if BackupService.isEncrypted(data) {
+                        importPassword = ""
+                        pendingData = data
+                    } else {
+                        restore(data, password: nil)
+                    }
                 } catch {
-                    message = "تعذر قراءة النسخة: \(error.localizedDescription)"
+                    message = "تعذر قراءة الملف: \(error.localizedDescription)"
                 }
             case .failure(let error):
                 message = error.localizedDescription
             }
         }
+        .alert("كلمة مرور النسخة", isPresented: Binding(get: { pendingData != nil }, set: { if !$0 { pendingData = nil } })) {
+            SecureField("كلمة المرور", text: $importPassword)
+            Button("استعادة") {
+                if let data = pendingData { restore(data, password: importPassword) }
+                pendingData = nil
+            }
+            Button("إلغاء", role: .cancel) { pendingData = nil }
+        }
         .alert(message ?? "", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
             Button("حسناً", role: .cancel) {}
+        }
+    }
+
+    private func createBackup() {
+        working = true
+        let reports = store.reports
+        let saved = templates.templates
+        let secret = password
+        Task {
+            do {
+                let url = try await BackupService.makeBackupFile(reports: reports, templates: saved, password: secret)
+                shareItem = IdentifiedURL(url: url)
+            } catch {
+                message = "تعذر إنشاء النسخة: \(error.localizedDescription)"
+            }
+            password = ""
+            confirm = ""
+            working = false
+        }
+    }
+
+    private func restore(_ data: Data, password: String?) {
+        working = true
+        Task {
+            do {
+                let bundle = try await BackupService.decode(data, password: password)
+                let reports = store.merge(bundle.reports)
+                let added = templates.merge(bundle.templates)
+                message = "تمت استعادة \(reports) تقرير و\(added) قالب."
+            } catch {
+                message = error.localizedDescription
+            }
+            importPassword = ""
+            working = false
         }
     }
 }

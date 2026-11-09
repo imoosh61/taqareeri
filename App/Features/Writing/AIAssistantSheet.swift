@@ -14,6 +14,7 @@ struct AIAssistantSheet: View {
     @State private var errorMessage: String?
     @State private var showSettings = false
     @State private var requestTask: Task<Void, Never>?
+    @StateObject private var consent = AIConsentGate()
 
     enum Scope: String, CaseIterable, Identifiable {
         case selection, all
@@ -76,7 +77,7 @@ struct AIAssistantSheet: View {
 
                 Section {
                     Button {
-                        generate()
+                        consent.run { generate() }
                     } label: {
                         HStack {
                             Spacer()
@@ -144,6 +145,7 @@ struct AIAssistantSheet: View {
                 }
             }
             .onDisappear { requestTask?.cancel() }
+            .aiConsentAlert(consent)
         }
     }
 
@@ -220,6 +222,7 @@ struct AISettingsView: View {
     @State private var model = AISettings.model
     @State private var testState: String?
     @State private var testing = false
+    @StateObject private var consent = AIConsentGate()
 
     var body: some View {
         Form {
@@ -255,7 +258,7 @@ struct AISettingsView: View {
             Section {
                 Button {
                     save()
-                    test()
+                    consent.run { test() }
                 } label: {
                     HStack {
                         Text("حفظ واختبار الاتصال")
@@ -277,6 +280,7 @@ struct AISettingsView: View {
         }
         .navigationTitle("الذكاء الاصطناعي")
         .navigationBarTitleDisplayMode(.inline)
+        .aiConsentAlert(consent)
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button("حفظ") {

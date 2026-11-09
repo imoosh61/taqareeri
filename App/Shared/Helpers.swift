@@ -6,6 +6,7 @@ import UIKit
 enum AppInfo {
     static let developer = "imoosh"
     static let email = "imoosh61@outlook.sa"
+    static let privacyPolicyURL = URL(string: "https://github.com/imoosh61/taqareeri/blob/main/PRIVACY.md")!
     static let copyright = "© \(Calendar(identifier: .gregorian).component(.year, from: Date())) imoosh. جميع الحقوق محفوظة."
 
     static var version: String {

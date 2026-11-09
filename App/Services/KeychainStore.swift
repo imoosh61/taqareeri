@@ -33,4 +33,45 @@ enum KeychainStore {
         attributes[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         return SecItemAdd(attributes as CFDictionary, nil) == errSecSuccess
     }
+
+    enum ReadResult {
+        case found(Data)
+        case notFound
+        case failed(OSStatus)
+    }
+
+    static func readData(for account: String) -> ReadResult {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        switch status {
+        case errSecSuccess:
+            if let data = result as? Data { return .found(data) }
+            return .failed(status)
+        case errSecItemNotFound:
+            return .notFound
+        default:
+            return .failed(status)
+        }
+    }
+
+    @discardableResult
+    static func setData(_ data: Data, for account: String, accessible: CFString) -> Bool {
+        let base: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account
+        ]
+        SecItemDelete(base as CFDictionary)
+        var attributes = base
+        attributes[kSecValueData as String] = data
+        attributes[kSecAttrAccessible as String] = accessible
+        return SecItemAdd(attributes as CFDictionary, nil) == errSecSuccess
+    }
 }

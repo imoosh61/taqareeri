@@ -66,6 +66,7 @@ enum AIModelOption: String, CaseIterable, Identifiable {
 
 enum AIWritingError: LocalizedError {
     case missingKey
+    case noConsent
     case invalidKey
     case rateLimited
     case overloaded
@@ -76,6 +77,7 @@ enum AIWritingError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .missingKey: return "أضف مفتاح Claude API من «المكتبة ← الذكاء الاصطناعي» أولاً."
+        case .noConsent: return "إرسال النص للذكاء الاصطناعي غير مسموح. فعّله من «الأمان والخصوصية»."
         case .invalidKey: return "مفتاح API غير صحيح أو منتهي. تحقق منه في الإعدادات."
         case .rateLimited: return "تم تجاوز حد الطلبات أو الرصيد. حاول بعد قليل أو تحقق من رصيد حسابك."
         case .overloaded: return "الخدمة مزدحمة حالياً، حاول مرة أخرى بعد لحظات."
@@ -90,6 +92,12 @@ enum AIWritingError: LocalizedError {
 enum AISettings {
     private static let keyAccount = "anthropic.apiKey"
     private static let modelKey = "ai.model"
+    static let consentKey = "ai.consent"
+
+    static var hasConsent: Bool {
+        get { UserDefaults.standard.bool(forKey: consentKey) }
+        set { UserDefaults.standard.set(newValue, forKey: consentKey) }
+    }
 
     static var apiKey: String? {
         get { KeychainStore.string(for: keyAccount) }
@@ -118,6 +126,7 @@ struct AIWritingService {
 
     /// - Parameter raw: return the model text as-is (only bold markers removed), keeping line layout.
     func run(task: AIWritingTask, input: String, context: AIReportContext, raw: Bool = false) async throws -> String {
+        guard AISettings.hasConsent else { throw AIWritingError.noConsent }
         guard let apiKey = AISettings.apiKey, !apiKey.isEmpty else { throw AIWritingError.missingKey }
 
         var request = URLRequest(url: endpoint)

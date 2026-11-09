@@ -10,8 +10,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    MARKETING_VERSION: "1.0.6"
-    CURRENT_PROJECT_VERSION: "6"
+    MARKETING_VERSION: "1.1.0"
+    CURRENT_PROJECT_VERSION: "7"
 
 targets:
   OfficialReports:
@@ -43,8 +43,7 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        UIFileSharingEnabled: true
-        LSSupportsOpeningDocumentsInPlace: true
+        NSFaceIDUsageDescription: "لقفل التطبيق وحماية تقاريرك وتوقيعاتك."
         NSMicrophoneUsageDescription: "يستخدم التطبيق الميكروفون لتحويل كلامك إلى نص داخل التقرير."
         NSSpeechRecognitionUsageDescription: "يستخدم التطبيق التعرّف على الكلام لكتابة التقرير بالإملاء الصوتي."
         NSPhotoLibraryUsageDescription: "لاختيار شعار الجهة أو التوقيع أو الختم من ألبوم الصور."

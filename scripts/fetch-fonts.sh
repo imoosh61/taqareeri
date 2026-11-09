@@ -5,8 +5,13 @@
 set -uo pipefail
 
 DEST="App/Resources/Fonts"
+LICENSES="App/Resources/Licenses"
 BASE="https://raw.githubusercontent.com/google/fonts/main/ofl"
-mkdir -p "$DEST"
+mkdir -p "$DEST" "$LICENSES"
+
+license() { # family dir → bundled OFL text (required by the SIL Open Font License)
+  get "$BASE/$2/OFL.txt" "$LICENSES/$1-OFL.txt" || rm -f "$LICENSES/$1-OFL.txt"
+}
 
 get() { # url → file ; returns curl status
   curl -fsSL --retry 2 -o "$2" "$1" 2>/dev/null
@@ -24,12 +29,14 @@ for family in "${FAMILIES[@]}"; do
   dir="$(echo "$family" | tr '[:upper:]' '[:lower:]')"
   if get "$BASE/$dir/$family-Regular.ttf" "$DEST/$family-Regular.ttf"; then
     get "$BASE/$dir/$family-Bold.ttf" "$DEST/$family-Bold.ttf" || true
+    license "$family" "$dir"
     echo "✓ $family (static)"; ok=$((ok + 1)); continue
   fi
   rm -f "$DEST/$family-Regular.ttf"
   found=0
   for axes in "${VARIABLE_AXES[@]}"; do
     if get "$BASE/$dir/$family%5B$axes%5D.ttf" "$DEST/$family-VF.ttf"; then
+      license "$family" "$dir"
       echo "✓ $family (variable: $axes)"; ok=$((ok + 1)); found=1; break
     fi
   done

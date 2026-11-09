@@ -12,6 +12,7 @@ struct AutoFormatSheet: View {
     @State private var aiProgress = ""
     @State private var showAISettings = false
     @State private var aiTask: Task<Void, Never>?
+    @StateObject private var consent = AIConsentGate()
 
     var body: some View {
         NavigationStack {
@@ -39,7 +40,7 @@ struct AutoFormatSheet: View {
                     Toggle("إظهار الأخطاء الإملائية أثناء الكتابة", isOn: $liveSpellCheck)
 
                     Button {
-                        runProofread()
+                        consent.run { runProofread() }
                     } label: {
                         HStack {
                             Label("تصحيح الأخطاء الإملائية والنحوية", systemImage: "checkmark.seal")
@@ -90,6 +91,7 @@ struct AutoFormatSheet: View {
                 NavigationStack { AISettingsView() }
             }
             .onDisappear { aiTask?.cancel() }
+            .aiConsentAlert(consent)
         }
     }
 

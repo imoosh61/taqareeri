@@ -4,3 +4,4 @@ build/
 *.ipa
 .DS_Store
 App/Resources/Fonts/*.ttf
+App/Resources/Licenses/*.txt

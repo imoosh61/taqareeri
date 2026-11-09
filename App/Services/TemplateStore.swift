@@ -14,8 +14,8 @@ final class TemplateStore: ObservableObject {
     private let fileURL: URL
 
     init() {
-        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        fileURL = documents.appendingPathComponent("templates.json")
+        DataVault.migrateLegacyDocuments()
+        fileURL = DataVault.baseURL.appendingPathComponent("templates.tqr")
         defaultTemplateID = UserDefaults.standard.string(forKey: Self.defaultKey).flatMap(UUID.init(uuidString:))
         load()
     }
@@ -60,7 +60,7 @@ final class TemplateStore: ObservableObject {
     private func load() {
         guard FileManager.default.fileExists(atPath: fileURL.path) else { return }
         do {
-            templates = try JSONDecoder().decode([HeaderTemplate].self, from: Data(contentsOf: fileURL))
+            templates = try JSONDecoder().decode([HeaderTemplate].self, from: DataVault.read(fileURL))
         } catch {
             errorMessage = "تعذر قراءة القوالب: \(error.localizedDescription)"
         }
@@ -68,7 +68,7 @@ final class TemplateStore: ObservableObject {
 
     private func persist() {
         do {
-            try JSONEncoder().encode(templates).write(to: fileURL, options: [.atomic])
+            try DataVault.write(JSONEncoder().encode(templates), to: fileURL)
         } catch {
             errorMessage = "تعذر حفظ القوالب: \(error.localizedDescription)"
         }

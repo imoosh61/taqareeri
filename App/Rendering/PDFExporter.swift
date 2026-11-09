@@ -24,7 +24,7 @@ enum PDFExporter {
         ]
         let renderer = UIGraphicsPDFRenderer(bounds: A4.bounds, format: format)
 
-        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("Exports", isDirectory: true)
+        let folder = TempFiles.exportsFolder
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let url = folder.appendingPathComponent(fileName(for: render.report.title)).appendingPathExtension("pdf")
         if FileManager.default.fileExists(atPath: url.path) {

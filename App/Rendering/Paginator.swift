@@ -116,7 +116,7 @@ enum Paginator {
         while containers.count < maxPages {
             addContainer()
 
-            let range = layoutManager.glyphRange(for: container)
+            let range = layoutManager.glyphRange(for: containers[containers.count - 1])
             let total = layoutManager.numberOfGlyphs
             if total == 0 || NSMaxRange(range) >= total { break }
 

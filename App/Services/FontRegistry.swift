@@ -23,9 +23,8 @@ final class FontRegistry: ObservableObject {
     private var bundledFonts: [ReportFont] = []
 
     init() {
-        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        folder = documents.appendingPathComponent("Fonts", isDirectory: true)
-        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        DataVault.migrateLegacyDocuments()
+        folder = DataVault.directory("Fonts")
         bundledFonts = Self.discoverBundledFonts()
         registerImportedFonts()
         refresh()

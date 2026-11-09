@@ -88,7 +88,7 @@ struct ReportEditorView: View {
                 }
             }
         }
-        .sheet(item: $shareItem) { item in
+        .sheet(item: $shareItem, onDismiss: TempFiles.cleanup) { item in
             ShareSheet(items: [item.url])
         }
         .sheet(item: $zoomPage) { ref in

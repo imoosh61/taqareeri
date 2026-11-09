@@ -1,7 +1,7 @@
 import Foundation
 
-/// Local persistence for reports: one JSON file per report in Documents/Reports
-/// (visible in the Files app, so drafts can also be copied to iCloud Drive manually).
+/// Local persistence for reports: one encrypted file per report inside the private vault
+/// (not visible in the Files app). See `DataVault`.
 @MainActor
 final class ReportStore: ObservableObject {
     @Published private(set) var reports: [Report] = []
@@ -17,13 +17,8 @@ final class ReportStore: ObservableObject {
     private let ioQueue = DispatchQueue(label: "com.imoosh61.officialreports.reports-io", qos: .utility)
 
     init(fileManager: FileManager = .default) {
-        let documents = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        directory = documents.appendingPathComponent("Reports", isDirectory: true)
-        do {
-            try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-        } catch {
-            errorMessage = "تعذر إنشاء مجلد التقارير: \(error.localizedDescription)"
-        }
+        DataVault.migrateLegacyDocuments()
+        directory = DataVault.directory("Reports")
         load()
     }
 
@@ -31,7 +26,7 @@ final class ReportStore: ObservableObject {
         let files: [URL]
         do {
             files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
-                .filter { $0.pathExtension == "json" }
+                .filter { $0.pathExtension == "tqr" }
         } catch {
             errorMessage = "تعذر قراءة التقارير: \(error.localizedDescription)"
             return
@@ -41,7 +36,7 @@ final class ReportStore: ObservableObject {
         var failures = 0
         for file in files {
             do {
-                let data = try Data(contentsOf: file)
+                let data = try DataVault.read(file)
                 loaded.append(try decoder.decode(Report.self, from: data))
             } catch {
                 failures += 1
@@ -61,7 +56,7 @@ final class ReportStore: ObservableObject {
     func save(_ report: Report) -> Bool {
         do {
             let data = try encoder.encode(report)
-            try data.write(to: fileURL(for: report.id), options: [.atomic])
+            try DataVault.write(data, to: fileURL(for: report.id))
             if let index = reports.firstIndex(where: { $0.id == report.id }) {
                 reports[index] = report
             } else {
@@ -89,7 +84,7 @@ final class ReportStore: ObservableObject {
         ioQueue.async { [weak self] in
             do {
                 let data = try JSONEncoder().encode(report)
-                try data.write(to: url, options: [.atomic])
+                try DataVault.write(data, to: url)
             } catch {
                 let message = "تعذر حفظ التقرير: \(error.localizedDescription)"
                 Task { @MainActor in self?.errorMessage = message }
@@ -178,6 +173,6 @@ final class ReportStore: ObservableObject {
     }
 
     private func fileURL(for id: UUID) -> URL {
-        directory.appendingPathComponent(id.uuidString).appendingPathExtension("json")
+        directory.appendingPathComponent(id.uuidString).appendingPathExtension("tqr")
     }
 }
