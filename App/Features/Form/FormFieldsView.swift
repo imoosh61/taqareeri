@@ -1,19 +1,18 @@
 import SwiftUI
 
 /// Form report fields: title bar, labelled boxes (width & height), templates.
-struct FormFieldsView: View {
+struct FormFieldsSheet: View {
     @ObservedObject var vm: ReportEditorViewModel
-    @State private var zoomPage: PageRef?
+    @Environment(\.dismiss) private var dismiss
     @State private var pendingTemplate: FormTemplate?
 
     var body: some View {
+        NavigationStack {
         Form {
             Section {
-                A4PageView(page: vm.firstBodyPhysicalPage, context: vm.renderContext)
-                    .frame(height: 300)
+                A4PageView(page: 0, snapshot: vm.snapshot)
+                    .frame(height: 220)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 6)
-                    .onTapGesture { zoomPage = PageRef(id: vm.firstBodyPhysicalPage) }
             }
             .listRowBackground(Color.clear)
 
@@ -50,8 +49,13 @@ struct FormFieldsView: View {
                 Text("الحقول تُرتَّب من اليمين: حقلان «نصف» أو ثلاثة «ثلث» في السطر الواحد.")
             }
         }
-        .sheet(item: $zoomPage) { ref in
-            PageZoomSheet(vm: vm, initialPage: ref.id)
+        .navigationTitle("حقول النموذج")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                Button("تم") { dismiss() }
+            }
+        }
         }
         .confirmationDialog(
             "استبدال الحقول بقالب «\(pendingTemplate?.title ?? "")»؟",

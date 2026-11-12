@@ -24,7 +24,7 @@ struct RenderImages {
                 signatures[employee.id] = image
             }
         }
-        for item in report.evidenceBlocks.flatMap(\.items) {
+        for item in Self.evidenceItems(of: report) {
             switch item.kind {
             case .photo:
                 if let data = item.imageData, let image = UIImage(data: data) {
@@ -38,31 +38,30 @@ struct RenderImages {
         }
     }
 
+    static func evidenceItems(of report: Report) -> [EvidenceItem] {
+        report.pages.flatMap(\.elements).compactMap(\.evidence).flatMap(\.items)
+    }
+
     /// The image-bearing parts of a report; when unchanged, decoded images can be reused.
     static func sources(of report: Report) -> [Data?] {
         [report.header.logoPNG, report.footer.stampPNG, report.frame.customFramePNG,
          report.frame.letterheadTopPNG, report.frame.letterheadBottomPNG]
             + report.footer.employees.map(\.signaturePNG)
-            + report.evidenceBlocks.flatMap(\.items).map { $0.kind == .photo ? $0.imageData : Data(($0.id.uuidString + $0.qrText).utf8) }
+            + evidenceItems(of: report).map { $0.kind == .photo ? $0.imageData : Data(($0.id.uuidString + $0.qrText).utf8) }
     }
 }
 
-struct PageRenderContext {
-    let report: Report
-    let pagination: PaginationResult
-    let images: RenderImages
-}
-
-/// Draws one physical page in A4 point space into the current UIKit/Core Graphics context.
-/// The same code path renders on-screen previews and the vector PDF.
+/// Draws one page in A4 point space into the current Core Graphics context.
+/// The same code renders the editor, previews, thumbnails and the vector PDF.
 @MainActor
 enum PageRenderer {
-    /// - Parameter includeBody: false draws only the page furniture (frame, letterhead, addressee,
-    ///   signatures, page number) — used behind the live on-page editor.
-    static func draw(page: Int, context render: PageRenderContext, in ctx: CGContext, includeBody: Bool = true) {
-        let report = render.report
-        let pagination = render.pagination
-        let pageRect = CGRect(origin: .zero, size: pagination.spec.pageSize)
+    /// - Parameter includeBody: false draws everything except the body text (the editor shows
+    ///   live, editable text on top).
+    static func draw(page index: Int, snapshot: DocumentSnapshot, in ctx: CGContext, includeBody: Bool = true) {
+        let report = snapshot.report
+        let spec = snapshot.spec
+        let images = snapshot.images
+        let pageRect = CGRect(origin: .zero, size: spec.pageSize)
         let accent = UIColor(hex: report.frame.colorHex)
 
         UIGraphicsPushContext(ctx)
@@ -74,74 +73,52 @@ enum PageRenderer {
 
         UIColor.white.setFill()
         ctx.fill(pageRect)
+        guard report.pages.indices.contains(index), snapshot.texts.indices.contains(index) else { return }
 
-        let kind = pagination.kind(ofPage: page)
-        let isCover = kind == .cover
-        if !isCover || report.frame.applyToCover {
-            FrameDrawer.draw(report.frame.style, color: accent, image: render.images.frame, in: pageRect, context: ctx)
-        }
+        FrameDrawer.draw(report.frame.style, color: accent, image: images.frame, in: pageRect, context: ctx)
 
-        switch kind {
-        case .cover:
-            drawCover(report: report, images: render.images, page: pageRect, accent: accent)
-        case .body(let bodyPage):
-            drawBodyPage(bodyPage, render: render, accent: accent, includeBody: includeBody)
-        }
-    }
-
-    // MARK: - Body pages
-
-    private static func drawBodyPage(_ bodyPage: Int, render: PageRenderContext, accent: UIColor, includeBody: Bool) {
-        let report = render.report
-        let pagination = render.pagination
-        let spec = pagination.spec
-
-        // Organisation letterhead images (top banner, bottom contact bar).
-        if let rect = spec.topLetterheadRect(bodyPage: bodyPage), let image = render.images.letterheadTop {
+        if let rect = spec.topLetterheadRect(bodyPage: index), let image = images.letterheadTop {
             image.draw(in: rect)
         }
-        if let rect = spec.bottomLetterheadRect(bodyPage: bodyPage), let image = render.images.letterheadBottom {
+        if let rect = spec.bottomLetterheadRect(bodyPage: index), let image = images.letterheadBottom {
             image.draw(in: rect)
         }
 
-        if spec.hasHeader(bodyPage: bodyPage) {
-            drawHeader(report: report, logo: render.images.logo, in: spec.headerRect(bodyPage: bodyPage), accent: accent)
+        if spec.hasHeader(bodyPage: index) {
+            drawHeader(report: report, logo: images.logo, in: spec.headerRect(bodyPage: index), accent: accent)
         }
-
-        if bodyPage == 0 && spec.addresseeHeight > 0 {
+        if index == 0 && spec.addresseeHeight > 0 {
             drawAddressee(report: report, in: spec.addresseeRect)
         }
-
-        if report.kind == .form && bodyPage == 0 {
+        if report.kind == .form && index == 0 {
             FormRenderer.draw(report: report, spec: spec, accent: accent)
         }
 
-        for block in report.visibleEvidenceBlocks {
-            let placement = EvidenceLayout.placement(of: block, report: report, spec: spec)
-            if placement.page == bodyPage {
-                EvidenceLayout.draw(block, report: report, images: render.images, in: placement.rect, accent: accent)
+        for element in report.pages[index].elements {
+            switch element.kind {
+            case .evidence:
+                if let block = element.evidence, block.isVisible {
+                    EvidenceLayout.draw(block, report: report, images: images, in: element.rect, accent: accent)
+                }
+            case .text:
+                if let box = element.text {
+                    drawTextBox(box, in: element.rect, fontName: report.textStyle.fontName)
+                }
             }
         }
 
-        for box in report.textBoxes where min(box.page, pagination.lastBodyPage) == bodyPage {
-            drawTextBox(box, fontName: report.textStyle.fontName)
+        if let signature = snapshot.signature, signature.page == index {
+            drawSignatures(report: report, images: images, in: signature.rect)
         }
 
-        let bodyRect = spec.bodyRect(bodyPage: bodyPage)
-        if includeBody, let range = pagination.glyphRange(forBodyPage: bodyPage), range.length > 0 {
-            pagination.layoutManager.drawBackground(forGlyphRange: range, at: bodyRect.origin)
-            pagination.layoutManager.drawGlyphs(forGlyphRange: range, at: bodyRect.origin)
-        }
-
-        if report.footer.showSignatureBlock && bodyPage == pagination.lastBodyPage {
-            drawSignatureBlock(report: report, images: render.images, layout: signatureLayout(report: report, spec: spec, lastBodyPage: bodyPage, hasStamp: render.images.stamp != nil))
+        if includeBody {
+            snapshot.texts[index].draw()
         }
 
         if report.page.showPageNumbers {
-            let label = ArabicFormat.pageLabel(bodyPage + 1, of: pagination.bodyPageCount, report.page.numerals)
             TextDraw.draw(
-                [label],
-                in: spec.footerRect(bodyPage: bodyPage),
+                [snapshot.pageLabel(index)],
+                in: spec.footerRect(bodyPage: index),
                 font: BodyStyler.font(name: report.textStyle.fontName, size: 10, bold: false),
                 color: UIColor(white: 0.35, alpha: 1),
                 alignment: .center
@@ -149,7 +126,7 @@ enum PageRenderer {
         }
     }
 
-    // MARK: - Header
+    // MARK: - Letterhead
 
     static let defaultLogoSide: CGFloat = 104
 
@@ -233,14 +210,14 @@ enum PageRenderer {
 
     // MARK: - Text boxes
 
-    private static func drawTextBox(_ box: TextBox, fontName: String) {
+    static func drawTextBox(_ box: TextBox, in rect: CGRect, fontName: String) {
         if box.showBorder {
-            let path = UIBezierPath(roundedRect: box.rect, cornerRadius: 6)
+            let path = UIBezierPath(roundedRect: rect, cornerRadius: 6)
             UIColor(white: 0.45, alpha: 1).setStroke()
             path.lineWidth = 0.9
             path.stroke()
         }
-        let inner = box.showBorder ? box.rect.insetBy(dx: 8, dy: 5) : box.rect.insetBy(dx: 2, dy: 1)
+        let inner = box.showBorder ? rect.insetBy(dx: 8, dy: 5) : rect.insetBy(dx: 2, dy: 1)
         TextDraw.draw(
             box.text.components(separatedBy: "\n"),
             in: inner,
@@ -298,159 +275,46 @@ enum PageRenderer {
         }
     }
 
-    // MARK: - Cover
+    // MARK: - Signatures
 
-    private static func drawCover(report: Report, images: RenderImages, page: CGRect, accent: UIColor) {
-        let fontName = report.textStyle.fontName
-        let sideInset: CGFloat = 72
-        let width = page.width - sideInset * 2
-        var y: CGFloat = 110
-
-        if let logo = images.logo {
-            let side = 170 * CGFloat(min(report.header.logoScale, 1.3))
-            let box = CGRect(x: page.midX - side / 2, y: y, width: side, height: side)
-            logo.draw(in: Geometry.aspectFit(logo.size, in: box))
-            y += side + 15
-        } else {
-            y += 60
-        }
-
-        let header = report.header
-        TextDraw.draw(
-            [header.topLine, header.ministry, header.generalAdministration, header.department],
-            in: CGRect(x: sideInset, y: y, width: width, height: 120),
-            font: BodyStyler.font(name: fontName, size: 15, bold: true),
-            color: .black,
-            alignment: .center,
-            verticallyCentered: false
-        )
-
-        let titleRect = CGRect(x: sideInset, y: page.height * 0.47, width: width, height: 130)
-        TextDraw.draw(
-            [report.title],
-            in: titleRect,
-            font: BodyStyler.font(name: fontName, size: 30, bold: true),
-            color: accent,
-            alignment: .center
-        )
-
-        // Ornament under the title
-        let ornamentY = titleRect.maxY + 10
-        accent.setStroke()
-        accent.setFill()
-        let line = UIBezierPath()
-        line.move(to: CGPoint(x: page.midX - 110, y: ornamentY))
-        line.addLine(to: CGPoint(x: page.midX - 14, y: ornamentY))
-        line.move(to: CGPoint(x: page.midX + 14, y: ornamentY))
-        line.addLine(to: CGPoint(x: page.midX + 110, y: ornamentY))
-        line.lineWidth = 1
-        line.stroke()
-        if let ctx = UIGraphicsGetCurrentContext() {
-            ctx.addPath(FrameDrawer.star(center: CGPoint(x: page.midX, y: ornamentY), radius: 7))
-            ctx.fillPath()
-        }
-
-        if !report.cover.subtitle.trimmed.isEmpty {
-            TextDraw.draw(
-                [report.cover.subtitle],
-                in: CGRect(x: sideInset, y: ornamentY + 18, width: width, height: 80),
-                font: BodyStyler.font(name: fontName, size: 18, bold: false),
-                color: UIColor(white: 0.25, alpha: 1),
-                alignment: .center,
-                verticallyCentered: false
-            )
-        }
-
-        var bottomLines: [String] = []
-        if !report.cover.preparedBy.trimmed.isEmpty {
-            bottomLines.append("إعداد: " + report.cover.preparedBy.trimmed)
-        }
-        bottomLines.append(contentsOf: ArabicFormat.coverDateLines(header, numerals: report.page.numerals))
-        TextDraw.draw(
-            bottomLines,
-            in: CGRect(x: sideInset, y: page.height - 200, width: width, height: 100),
-            font: BodyStyler.font(name: fontName, size: 13, bold: false),
-            color: .black,
-            alignment: .center
-        )
-    }
-
-    // MARK: - Signature & stamp
-
-    /// Final rectangles (in A4 points) of each employee cell and the stamp on the last page.
-    struct SignatureLayout {
-        var employees: [(id: UUID, rect: CGRect)]
-        var stamp: CGRect?
-    }
-
-    static let stampSide: CGFloat = 100
-
-    /// Automatic placement — one employee centered; several two per row, first on the right (RTL),
-    /// then left; an odd last one centered on its own row; stamp between the columns — then each
-    /// element is shifted by its user offset and kept inside the page.
-    static func signatureLayout(report: Report, spec: PageLayoutSpec, lastBodyPage: Int, hasStamp: Bool) -> SignatureLayout {
-        let bodyRect = spec.bodyRect(bodyPage: lastBodyPage)
-        let height = spec.signatureBlockHeight
-        let rect = CGRect(x: bodyRect.minX, y: bodyRect.maxY - height, width: bodyRect.width, height: height)
-        let page = CGRect(origin: .zero, size: spec.pageSize)
-
+    /// Names & signatures inside their block: one employee centered; several two per row
+    /// (first on the right), an odd last one centered; the stamp between the columns.
+    static func drawSignatures(report: Report, images: RenderImages, in rect: CGRect) {
         let employees = report.footer.employees
-        let rowHeight = PageLayoutSpec.employeeRowHeight
+        let rows = employees.isEmpty ? 0 : (employees.count + 1) / 2
+        let rowHeight = rows > 0 ? rect.height / CGFloat(rows) : rect.height
         let cellWidth = min(220, rect.width * 0.42)
-        var cells: [(id: UUID, rect: CGRect)] = []
+        let fontName = report.textStyle.fontName
         var firstCell: CGRect?
 
         for (index, employee) in employees.enumerated() {
             let y = rect.minY + CGFloat(index / 2) * rowHeight
-            let isAloneInRow = employees.count == 1 || (index == employees.count - 1 && index.isMultiple(of: 2))
+            let alone = employees.count == 1 || (index == employees.count - 1 && index.isMultiple(of: 2))
             let x: CGFloat
-            if isAloneInRow {
+            if alone {
                 x = rect.midX - cellWidth / 2
             } else if index.isMultiple(of: 2) {
-                x = rect.maxX - cellWidth   // right
+                x = rect.maxX - cellWidth
             } else {
-                x = rect.minX               // left
+                x = rect.minX
             }
             let cell = CGRect(x: x, y: y, width: cellWidth, height: rowHeight)
             if index == 0 { firstCell = cell }
-            cells.append((employee.id, clamp(cell.offsetBy(dx: employee.offset.width, dy: employee.offset.height), to: page)))
+            drawEmployee(employee, signature: images.signatures[employee.id], in: cell, fontName: fontName)
         }
 
-        var stampRect: CGRect?
-        if hasStamp {
-            let side = stampSide
-            let center: CGPoint
-            if employees.count >= 2 {
-                center = CGPoint(x: rect.midX, y: rect.minY + rowHeight / 2 + 4)
-            } else if let cell = firstCell {
-                center = CGPoint(x: max(rect.minX + side / 2, cell.minX - side / 2 - 10), y: cell.midY)
-            } else {
-                center = CGPoint(x: rect.midX, y: rect.minY + side / 2 + 4)
-            }
-            let box = CGRect(x: center.x - side / 2, y: center.y - side / 2, width: side, height: side)
-            let offset = report.footer.stampOffset
-            stampRect = clamp(box.offsetBy(dx: offset.width, dy: offset.height), to: page)
+        guard let stamp = images.stamp else { return }
+        let side = min(100, rect.height)
+        let center: CGPoint
+        if employees.count >= 2 {
+            center = CGPoint(x: rect.midX, y: rect.minY + min(rowHeight, rect.height) / 2)
+        } else if let cell = firstCell {
+            center = CGPoint(x: max(rect.minX + side / 2, cell.minX - side / 2 - 10), y: cell.midY)
+        } else {
+            center = CGPoint(x: rect.midX, y: rect.midY)
         }
-        return SignatureLayout(employees: cells, stamp: stampRect)
-    }
-
-    /// Keeps `rect` fully inside `bounds` (with a small inset).
-    static func clamp(_ rect: CGRect, to bounds: CGRect) -> CGRect {
-        let inner = bounds.insetBy(dx: 8, dy: 8)
-        var result = rect
-        result.origin.x = min(max(result.minX, inner.minX), inner.maxX - result.width)
-        result.origin.y = min(max(result.minY, inner.minY), inner.maxY - result.height)
-        return result
-    }
-
-    private static func drawSignatureBlock(report: Report, images: RenderImages, layout: SignatureLayout) {
-        let fontName = report.textStyle.fontName
-        for (employee, cell) in zip(report.footer.employees, layout.employees) where employee.id == cell.id {
-            drawEmployee(employee, signature: images.signatures[employee.id], in: cell.rect, fontName: fontName)
-        }
-        if let stamp = images.stamp, let box = layout.stamp {
-            stamp.draw(in: Geometry.aspectFit(stamp.size, in: box), blendMode: .multiply, alpha: 0.92)
-        }
+        let box = CGRect(x: center.x - side / 2, y: center.y - side / 2, width: side, height: side)
+        stamp.draw(in: Geometry.aspectFit(stamp.size, in: box), blendMode: .multiply, alpha: 0.92)
     }
 
     private static func drawEmployee(_ employee: Employee, signature: UIImage?, in cell: CGRect, fontName: String) {

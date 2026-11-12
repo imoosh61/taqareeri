@@ -3,43 +3,26 @@ import PhotosUI
 import SwiftUI
 import UIKit
 
-/// Step 4: employees (names + signatures) and official stamp on the last page.
-struct SignatureStampView: View {
+/// Names, signatures and the official stamp (a block on the last page, movable on the canvas).
+struct SignaturesSheet: View {
     @ObservedObject var vm: ReportEditorViewModel
+    @Environment(\.dismiss) private var dismiss
     @State private var signingEmployee: EmployeeRef?
     @State private var photoTarget: UUID?
     @State private var showPhotoPicker = false
     @State private var signatureItem: PhotosPickerItem?
     @State private var stampItem: PhotosPickerItem?
-    @State private var zoomPage: PageRef?
-    @State private var showPositionEditor = false
 
     var body: some View {
+        NavigationStack {
         Form {
             Section {
-                Toggle("إظهار الأسماء والتوقيعات في آخر صفحة", isOn: $vm.report.footer.showSignatureBlock)
-                if vm.report.footer.showSignatureBlock {
-                    Button {
-                        KeyboardHelper.dismiss()
-                        vm.repaginate()
-                        showPositionEditor = true
-                    } label: {
-                        Label("تحريك التوقيعات والختم بحرية", systemImage: "hand.draw")
-                    }
-                    .disabled(vm.report.footer.employees.isEmpty && vm.report.footer.stampPNG == nil)
-                    if vm.report.footer.hasCustomPositions {
-                        Button("إرجاع المواقع التلقائية", role: .destructive) {
-                            vm.resetSignaturePositions()
-                        }
-                    }
-                    Button {
-                        zoomPage = PageRef(id: vm.pagination.physicalPage(forBodyPage: vm.pagination.lastBodyPage))
-                    } label: {
-                        Label("معاينة الصفحة الأخيرة", systemImage: "eye")
-                    }
+                Toggle("إظهار الأسماء والتوقيعات", isOn: $vm.report.footer.showSignatureBlock)
+                if vm.report.signatureRectValue != nil || vm.report.signaturePageValue != nil {
+                    Button("إرجاعها لأسفل آخر صفحة") { vm.resetSignaturePosition() }
                 }
             } footer: {
-                Text("موظف واحد: يظهر في المنتصف. أكثر من موظف: اسم في اليمين واسم في اليسار. وتُضاف صفحة تلقائياً إن لم تكفِ المساحة.")
+                Text("تظهر في أسفل آخر صفحة. لتحريكها أو تكبيرها: اضغط عليها في الصفحة ثم اسحبها أو اسحب زاويتها. موظف واحد في المنتصف، وأكثر من موظف يمين ويسار، والختم بينهم.")
             }
 
             ForEach(Array(vm.report.footer.employees.enumerated()), id: \.element.id) { index, employee in
@@ -76,14 +59,16 @@ struct SignatureStampView: View {
                 Text("يوضع الختم بين التوقيعات، وتُزال خلفيته البيضاء تلقائياً.")
             }
         }
+        .navigationTitle("التوقيعات والختم")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                Button("تم") { dismiss() }
+            }
+        }
+        }
         .sheet(item: $signingEmployee) { ref in
             SignaturePadView { data in vm.setSignature(png: data, for: ref.id) }
-        }
-        .sheet(item: $zoomPage) { ref in
-            PageZoomSheet(vm: vm, initialPage: ref.id)
-        }
-        .fullScreenCover(isPresented: $showPositionEditor) {
-            SignaturePositionEditor(vm: vm)
         }
         .photosPicker(isPresented: $showPhotoPicker, selection: $signatureItem, matching: .images)
         .onChange(of: signatureItem) { _, item in

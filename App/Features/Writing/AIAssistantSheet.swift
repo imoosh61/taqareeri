@@ -19,7 +19,7 @@ struct AIAssistantSheet: View {
     enum Scope: String, CaseIterable, Identifiable {
         case selection, all
         var id: String { rawValue }
-        var title: String { self == .selection ? "النص المحدد" : "التقرير كاملاً" }
+        var title: String { self == .selection ? "النص المحدد" : "الصفحة كاملة" }
     }
 
     private var hasSelection: Bool { vm.richText.hasSelection }
@@ -27,7 +27,7 @@ struct AIAssistantSheet: View {
     private var sourceText: String {
         if task == .draft { return notes }
         if scope == .selection && hasSelection { return vm.richText.selectedText }
-        return vm.bodyText.string.replacingOccurrences(of: BodyDocument.pageBreak, with: "\n")
+        return vm.activePageText
     }
 
     var body: some View {
@@ -140,7 +140,7 @@ struct AIAssistantSheet: View {
             }
             .onAppear {
                 scope = hasSelection ? .selection : .all
-                if !vm.bodyText.string.trimmed.isEmpty && task == .draft && hasSelection {
+                if !vm.activePageText.trimmed.isEmpty && task == .draft && hasSelection {
                     task = .formalize
                 }
             }
@@ -172,11 +172,11 @@ struct AIAssistantSheet: View {
                     vm.richText.replaceAll(with: result)
                     dismiss()
                 } label: {
-                    Label("استبدال التقرير كاملاً", systemImage: "arrow.left.arrow.right")
+                    Label("استبدال نص الصفحة", systemImage: "arrow.left.arrow.right")
                 }
             }
             Button {
-                vm.richText.insertText((vm.bodyText.length > 0 ? "\n" : "") + result)
+                vm.richText.insertText((vm.activePageText.isEmpty ? "" : "\n") + result)
                 dismiss()
             } label: {
                 Label("إدراج عند المؤشر", systemImage: "text.insert")

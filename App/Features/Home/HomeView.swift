@@ -1,6 +1,7 @@
 import SwiftUI
+import UIKit
 
-/// Drafts list and the "new A4 report" entry point.
+/// Home: two sections (reports / evidence forms), each a grid of cards showing the first page.
 struct HomeView: View {
     @EnvironmentObject private var store: ReportStore
     @EnvironmentObject private var templates: TemplateStore
@@ -15,72 +16,55 @@ struct HomeView: View {
         store.reports.filter { $0.kind == section }
     }
 
+    private let columns = [GridItem(.adaptive(minimum: 150, maximum: 220), spacing: 16)]
+
     var body: some View {
         NavigationStack(path: $path) {
-            List {
-                Section {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
                     Picker("القسم", selection: $section) {
                         ForEach(ReportKind.allCases) { Text($0.title).tag($0) }
                     }
                     .pickerStyle(.segmented)
-                    .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
 
                     Button(action: createReport) {
-                        NewReportCard(
-                            title: section == .text ? "تقرير جديد (A4)" : "نموذج شواهد جديد",
+                        NewReportBanner(
+                            title: section == .text ? "تقرير جديد" : "نموذج شواهد جديد",
                             subtitle: section == .text
-                                ? (templates.defaultTemplate.map { "باستخدام قالب «\($0.name)»" } ?? "ترويسة، إطار، كتابة، ثم تصدير PDF")
-                                : "حقول جاهزة + صور وQR + توقيع المعلم والمدير",
+                                ? (templates.defaultTemplate.map { "بقالب «\($0.name)»" } ?? "اكتب مباشرة على صفحة A4")
+                                : "قوالب جاهزة للمعلمين مع الصور والتوقيعات",
                             accent: theme.accent,
                             secondary: theme.secondary
                         )
                     }
                     .buttonStyle(.plain)
-                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
-                    .listRowBackground(Color.clear)
-                }
 
-                Section {
                     if visibleReports.isEmpty {
                         ContentUnavailableView(
                             section == .text ? "لا توجد تقارير بعد" : "لا توجد نماذج بعد",
                             systemImage: section == .text ? "doc.text" : "list.bullet.rectangle",
-                            description: Text(section == .text ? "ابدأ بإنشاء تقرير جديد بمقاس A4." : "اختر قالباً جاهزاً مثل «إنجاز الدروس».")
+                            description: Text(section == .text ? "اضغط «تقرير جديد» للبدء." : "اختر قالباً جاهزاً مثل «إنجاز الدروس».")
                         )
+                        .padding(.top, 30)
+                    } else {
+                        Text("المسودات")
+                            .font(.headline)
+                            .foregroundStyle(.secondary)
+                        LazyVGrid(columns: columns, spacing: 18) {
+                            ForEach(visibleReports) { report in
+                                NavigationLink(value: report.id) {
+                                    ReportCard(report: report)
+                                }
+                                .buttonStyle(.plain)
+                                .contextMenu { menu(for: report) }
+                            }
+                        }
+                        Text("اضغط مطولاً على أي تقرير للنسخ أو الحذف.")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                            .frame(maxWidth: .infinity)
                     }
-                    ForEach(visibleReports) { report in
-                        NavigationLink(value: report.id) {
-                            ReportRow(report: report)
-                        }
-                        .swipeActions(edge: .trailing) {
-                            Button(role: .destructive) {
-                                pendingDelete = report
-                            } label: {
-                                Label("حذف", systemImage: "trash")
-                            }
-                        }
-                        .contextMenu {
-                            Button {
-                                if let copy = store.duplicateAsNew(report.id) { path.append(copy.id) }
-                            } label: {
-                                Label("تقرير جديد من هذا (بدون صور)", systemImage: "doc.badge.plus")
-                            }
-                            Button {
-                                store.duplicate(report.id)
-                            } label: {
-                                Label("نسخ التقرير", systemImage: "plus.square.on.square")
-                            }
-                            Button(role: .destructive) {
-                                pendingDelete = report
-                            } label: {
-                                Label("حذف", systemImage: "trash")
-                            }
-                        }
-                    }
-                } header: {
-                    Text("المسودات")
-                } footer: {
+
                     VStack(spacing: 4) {
                         Text("تطوير \(AppInfo.developer) • الإصدار \(AppInfo.version)")
                             .foregroundStyle(.tertiary)
@@ -90,9 +74,11 @@ struct HomeView: View {
                     }
                     .font(.caption2)
                     .frame(maxWidth: .infinity)
-                    .padding(.top, 24)
+                    .padding(.top, 20)
                 }
+                .padding()
             }
+            .background(Color(.systemGroupedBackground))
             .navigationTitle("تقاريري")
             .navigationDestination(for: UUID.self) { id in
                 if let report = store.report(id: id) {
@@ -106,12 +92,12 @@ struct HomeView: View {
                     Button {
                         showLibrary = true
                     } label: {
-                        Label("المكتبة والإعدادات", systemImage: "gearshape")
+                        Label("الإعدادات", systemImage: "gearshape")
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(action: createReport) {
-                        Label("تقرير جديد", systemImage: "plus")
+                        Label("جديد", systemImage: "plus")
                     }
                 }
             }
@@ -148,6 +134,25 @@ struct HomeView: View {
         }
     }
 
+    @ViewBuilder
+    private func menu(for report: Report) -> some View {
+        Button {
+            if let copy = store.duplicateAsNew(report.id) { path.append(copy.id) }
+        } label: {
+            Label("تقرير جديد من هذا (بدون صور)", systemImage: "doc.badge.plus")
+        }
+        Button {
+            store.duplicate(report.id)
+        } label: {
+            Label("نسخ", systemImage: "plus.square.on.square")
+        }
+        Button(role: .destructive) {
+            pendingDelete = report
+        } label: {
+            Label("حذف", systemImage: "trash")
+        }
+    }
+
     private func createReport() {
         if section == .form {
             showFormPicker = true
@@ -163,7 +168,7 @@ struct HomeView: View {
     }
 }
 
-private struct NewReportCard: View {
+private struct NewReportBanner: View {
     let title: String
     let subtitle: String
     let accent: Color
@@ -174,58 +179,97 @@ private struct NewReportCard: View {
             ZStack {
                 RoundedRectangle(cornerRadius: 6)
                     .fill(Color.white)
-                    .frame(width: 46, height: 62)
+                    .frame(width: 44, height: 60)
                     .shadow(color: .black.opacity(0.2), radius: 3, y: 1)
-                RoundedRectangle(cornerRadius: 3)
-                    .stroke(secondary, lineWidth: 1.5)
-                    .frame(width: 38, height: 54)
                 Image(systemName: "plus")
                     .font(.title3.weight(.bold))
                     .foregroundStyle(accent)
             }
             VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.title3.weight(.bold))
-                    .foregroundStyle(.white)
-                Text(subtitle)
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(0.85))
+                Text(title).font(.title3.weight(.bold)).foregroundStyle(.white)
+                Text(subtitle).font(.subheadline).foregroundStyle(.white.opacity(0.85))
             }
             Spacer()
-            Image(systemName: "chevron.left")
-                .foregroundStyle(.white.opacity(0.7))
+            Image(systemName: "chevron.left").foregroundStyle(.white.opacity(0.7))
         }
         .padding(18)
         .background(
-            LinearGradient(colors: [accent, accent.opacity(0.75), secondary.opacity(0.85)], startPoint: .topLeading, endPoint: .bottomTrailing),
-            in: RoundedRectangle(cornerRadius: 18)
+            LinearGradient(colors: [accent, accent.opacity(0.78), secondary.opacity(0.85)],
+                           startPoint: .topLeading, endPoint: .bottomTrailing),
+            in: RoundedRectangle(cornerRadius: 20)
         )
     }
 }
 
-private struct ReportRow: View {
+/// A report card: thumbnail of its first page, title, page count and date.
+private struct ReportCard: View {
     let report: Report
 
     var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: report.kind == .text ? "doc.text.fill" : "list.bullet.rectangle.fill")
-                .font(.title2)
-                .foregroundStyle(.tint)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(report.title.trimmed.isEmpty ? "بدون عنوان" : report.title)
-                    .font(.headline)
-                    .lineLimit(1)
-                HStack(spacing: 6) {
-                    if !report.header.ministry.trimmed.isEmpty {
-                        Text(report.header.ministry).lineLimit(1)
-                        Text("•")
-                    }
-                    Text(report.updatedAt, format: .dateTime.day().month().hour().minute())
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 8) {
+            ReportThumbnail(report: report)
+                .aspectRatio(A4.aspectRatio, contentMode: .fit)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.black.opacity(0.08)))
+                .shadow(color: .black.opacity(0.15), radius: 5, y: 2)
+            Text(report.title.trimmed.isEmpty ? "بدون عنوان" : report.title)
+                .font(.subheadline.weight(.semibold))
+                .lineLimit(1)
+            HStack(spacing: 4) {
+                Image(systemName: "doc.on.doc").font(.caption2)
+                Text("\(ArabicFormat.number(report.pages.count, report.page.numerals)) ص")
+                Text("•")
+                Text(report.updatedAt, format: .dateTime.day().month())
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        .contentShape(Rectangle())
+    }
+}
+
+/// First page drawn into a small bitmap, cached per report version.
+private struct ReportThumbnail: View {
+    let report: Report
+    @State private var image: UIImage?
+
+    var body: some View {
+        ZStack {
+            Color.white
+            if let image {
+                Image(uiImage: image).resizable().scaledToFit()
+            } else {
+                ProgressView()
             }
         }
-        .padding(.vertical, 4)
+        .task(id: report.updatedAt) {
+            // Let the grid appear first, then draw.
+            await Task.yield()
+            image = ThumbnailCache.shared.image(for: report)
+        }
+    }
+}
+
+@MainActor
+final class ThumbnailCache {
+    static let shared = ThumbnailCache()
+    private var cache: [UUID: (stamp: Date, image: UIImage)] = [:]
+
+    func image(for report: Report) -> UIImage {
+        if let cached = cache[report.id], cached.stamp == report.updatedAt { return cached.image }
+        let snapshot = DocumentSnapshot(report: report, images: RenderImages(report: report))
+        let width: CGFloat = 240
+        let scale = width / A4.size.width
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 2
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: width, height: A4.size.height * scale), format: format)
+        let image = renderer.image { context in
+            UIColor.white.setFill()
+            context.fill(CGRect(origin: .zero, size: CGSize(width: width, height: A4.size.height * scale)))
+            context.cgContext.scaleBy(x: scale, y: scale)
+            PageRenderer.draw(page: 0, snapshot: snapshot, in: context.cgContext)
+        }
+        cache[report.id] = (report.updatedAt, image)
+        return image
     }
 }

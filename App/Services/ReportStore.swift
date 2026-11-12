@@ -34,14 +34,20 @@ final class ReportStore: ObservableObject {
 
         var loaded: [Report] = []
         var failures = 0
+        var upgraded: [Report] = []
         for file in files {
             do {
                 let data = try DataVault.read(file)
-                loaded.append(try decoder.decode(Report.self, from: data))
+                let report = try decoder.decode(Report.self, from: data)
+                // Version 1 reports become independent pages (kept on disk in the new form).
+                let current = ReportMigration.upgraded(report)
+                if current != report { upgraded.append(current) }
+                loaded.append(current)
             } catch {
                 failures += 1
             }
         }
+        upgraded.forEach(saveInBackground)
         reports = loaded.sorted { $0.updatedAt > $1.updatedAt }
         if failures > 0 {
             errorMessage = "تعذر فتح \(failures) من ملفات التقارير (قد تكون تالفة)."
@@ -94,6 +100,7 @@ final class ReportStore: ObservableObject {
 
     func createReport(from template: HeaderTemplate?, kind: ReportKind = .text, form: FormTemplate? = nil) -> Report {
         var report = Report()
+        report.pages = [ReportPage()]
         if let template {
             var header = template.header
             header.date = Date()
@@ -111,12 +118,15 @@ final class ReportStore: ObservableObject {
             report.form = settings
             report.page.showPageNumbers = false
             report.textStyle.fontSize = 13
-            report.evidenceBlocks = [EvidenceBlock()]
             report.footer.showSignatureBlock = true
             report.footer.employees = [
                 Employee(label: "معلم/ة المادة"),
                 Employee(label: "مدير/ة المدرسة")
             ]
+            // An evidence box ready below the fields.
+            let spec = PageLayoutSpec(report: report)
+            let rect = DocumentLayout.defaultRect(for: .evidence, report: report, spec: spec, page: 0)
+            report.pages[0].elements = [PageElement.evidence(rect: rect)]
         }
         save(report)
         return report
@@ -131,11 +141,16 @@ final class ReportStore: ObservableObject {
         copy.updatedAt = Date()
         copy.header.date = Date()
         copy.header.referenceNumber = ""
-        copy.evidenceBlocks = copy.evidenceBlocks.map { block in
-            var empty = block
-            empty.id = UUID()
-            empty.items = []
-            return empty
+        copy.pages = copy.pages.map { page in
+            var fresh = page
+            fresh.id = UUID()
+            fresh.elements = page.elements.map { element in
+                var copy = element
+                copy.id = UUID()
+                copy.evidence?.items = []
+                return copy
+            }
+            return fresh
         }
         save(copy)
         return copy

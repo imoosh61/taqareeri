@@ -4,7 +4,7 @@ import UIKit
 /// UIView that draws one A4 page with the shared `PageRenderer` (identical to the PDF output).
 final class PageCanvasView: UIView {
     private var page = 0
-    private var context: PageRenderContext?
+    private var snapshot: DocumentSnapshot?
     private var includeBody = true
 
     override init(frame: CGRect) {
@@ -21,23 +21,17 @@ final class PageCanvasView: UIView {
         fatalError("init(coder:) is not supported")
     }
 
-    func update(page: Int, context: PageRenderContext, includeBody: Bool = true) {
-        if let old = self.context,
-           old.pagination === context.pagination,
-           self.page == page,
-           self.includeBody == includeBody,
-           old.report == context.report {
-            return
-        }
+    func update(page: Int, snapshot: DocumentSnapshot, includeBody: Bool = true) {
+        if self.snapshot === snapshot, self.page == page, self.includeBody == includeBody { return }
         self.page = page
-        self.context = context
+        self.snapshot = snapshot
         self.includeBody = includeBody
         setNeedsDisplay()
     }
 
     override func draw(_ rect: CGRect) {
-        guard let context, let cg = UIGraphicsGetCurrentContext(), bounds.width > 0 else { return }
-        guard page < context.pagination.totalPages else {
+        guard let snapshot, let cg = UIGraphicsGetCurrentContext(), bounds.width > 0 else { return }
+        guard page < snapshot.pageCount else {
             UIColor.white.setFill()
             cg.fill(bounds)
             return
@@ -45,31 +39,31 @@ final class PageCanvasView: UIView {
         cg.saveGState()
         let scale = bounds.width / A4.size.width
         cg.scaleBy(x: scale, y: scale)
-        PageRenderer.draw(page: page, context: context, in: cg, includeBody: includeBody)
+        PageRenderer.draw(page: page, snapshot: snapshot, in: cg, includeBody: includeBody)
         cg.restoreGState()
     }
 }
 
 private struct PageCanvas: UIViewRepresentable {
     let page: Int
-    let context: PageRenderContext
+    let snapshot: DocumentSnapshot
 
     func makeUIView(context: Context) -> PageCanvasView {
         PageCanvasView(frame: .zero)
     }
 
     func updateUIView(_ view: PageCanvasView, context: Context) {
-        view.update(page: page, context: self.context)
+        view.update(page: page, snapshot: snapshot)
     }
 }
 
 /// A4 page with paper styling, sized by aspect ratio.
 struct A4PageView: View {
     let page: Int
-    let context: PageRenderContext
+    let snapshot: DocumentSnapshot
 
     var body: some View {
-        PageCanvas(page: page, context: context)
+        PageCanvas(page: page, snapshot: snapshot)
             .aspectRatio(A4.aspectRatio, contentMode: .fit)
             .contentShape(Rectangle())
             .clipShape(RoundedRectangle(cornerRadius: 2))

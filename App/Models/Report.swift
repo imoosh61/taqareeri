@@ -442,6 +442,12 @@ struct Report: Identifiable, Codable, Equatable {
     var evidenceBlocksStorage: [EvidenceBlock]?
     var textBoxesStorage: [TextBox]?
     var minimumPagesValue: Int?
+    // Version 2 (independent pages).
+    var pagesStorage: [ReportPage]?
+    /// Position & size of the signatures block (nil = automatic, at the bottom of its page).
+    var signatureRectValue: CGRect?
+    /// Page of the signatures block (nil = always the last page).
+    var signaturePageValue: Int?
 
     /// Body pages that always exist, even when empty (pages added by the user).
     var minimumPages: Int {

@@ -10,7 +10,11 @@ enum AppInfo {
     static let copyright = "© \(Calendar(identifier: .gregorian).component(.year, from: Date())) imoosh. جميع الحقوق محفوظة."
 
     static var version: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.6"
+        let marketing = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "2.0.0"
+        guard let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String, !build.isEmpty else {
+            return marketing
+        }
+        return "\(marketing) (\(build))"
     }
 
     /// Opens the user's mail app with a new message to the developer.

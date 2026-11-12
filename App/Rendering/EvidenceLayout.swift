@@ -1,63 +1,8 @@
 import UIKit
 
-/// Where the evidence block goes, and how its photos / QR codes are arranged inside it.
+/// How an evidence box arranges its photos / QR codes and title.
 @MainActor
 enum EvidenceLayout {
-    struct Placement: Equatable {
-        var blockID: UUID
-        var page: Int       // body page index
-        var rect: CGRect    // A4 points
-    }
-
-    static let minimumSize = CGSize(width: 90, height: 70)
-    /// Extra space kept between surrounding text and a box.
-    static let textMargin: CGFloat = 8
-
-    /// Final placement (custom or automatic) of every visible box.
-    static func placements(report: Report, spec: PageLayoutSpec) -> [Placement] {
-        report.visibleEvidenceBlocks.map { placement(of: $0, report: report, spec: spec) }
-    }
-
-    static func placement(of block: EvidenceBlock, report: Report, spec: PageLayoutSpec) -> Placement {
-        let page = max(block.page, 0)
-        let rect = block.rect.map(clamp) ?? defaultRect(report: report, spec: spec, page: page)
-        return Placement(blockID: block.id, page: page, rect: rect)
-    }
-
-    /// Automatic box: below the fields on a form's first page; otherwise the lower half of the
-    /// writing area, so text can still be written above it. Room is kept for the signatures.
-    static func defaultRect(report: Report, spec: PageLayoutSpec, page: Int) -> CGRect {
-        let body = spec.bodyRect(bodyPage: page)
-        let signatureReserve = report.footer.showSignatureBlock ? spec.signatureBlockHeight + 10 : 0
-        let bottom = body.maxY - signatureReserve
-
-        if report.kind == .form && page == 0 {
-            let top = FormRenderer.layout(report: report, spec: spec).bottom + 22
-            return clamp(CGRect(x: body.minX, y: top, width: body.width, height: max(bottom - top, 120)))
-        }
-
-        let height = max(min(300, (bottom - body.minY) * 0.55), 120)
-        return clamp(CGRect(x: body.minX, y: bottom - height, width: body.width, height: height))
-    }
-
-    /// Areas that body text must flow around (text reports only).
-    static func exclusions(report: Report, spec: PageLayoutSpec) -> [Placement] {
-        guard report.kind == .text else { return [] }
-        return placements(report: report, spec: spec).map {
-            Placement(blockID: $0.blockID, page: $0.page, rect: $0.rect.insetBy(dx: -textMargin, dy: -textMargin))
-        }
-    }
-
-    static func clamp(_ rect: CGRect) -> CGRect {
-        let page = CGRect(origin: .zero, size: A4.size).insetBy(dx: 10, dy: 10)
-        var result = rect
-        result.size.width = min(max(result.width, minimumSize.width), page.width)
-        result.size.height = min(max(result.height, minimumSize.height), page.height)
-        result.origin.x = min(max(result.minX, page.minX), page.maxX - result.width)
-        result.origin.y = min(max(result.minY, page.minY), page.maxY - result.height)
-        return result
-    }
-
     // MARK: - Drawing
 
     static func draw(_ evidence: EvidenceBlock, report: Report, images: RenderImages, in rect: CGRect, accent: UIColor) {

@@ -2,73 +2,88 @@ import Combine
 import Foundation
 import UIKit
 
-struct BodySection: Identifiable, Equatable {
-    let id: Int
-    let range: NSRange
-    let preview: String
-}
-
-/// Owns one report while it is being edited: live pagination, autosave, images, export.
+/// Owns one report while it is edited: independent pages, elements placed on pages, the live
+/// document snapshot used for drawing, autosave, images, formatting, AI and export.
 @MainActor
 final class ReportEditorViewModel: ObservableObject {
+    /// What is selected on the canvas (for moving / resizing / editing).
+    enum Selection: Equatable {
+        case element(UUID)
+        case signatures
+        case logo
+    }
+
     @Published var report: Report
-    @Published private(set) var pagination: PaginationResult
+    @Published private(set) var snapshot: DocumentSnapshot
     @Published private(set) var images: RenderImages
-    @Published private(set) var cursorBodyPage = 0
-    /// Bumped whenever the body text is replaced from outside the text view.
-    @Published private(set) var bodyRevision = 0
+    @Published var selection: Selection?
+    @Published private(set) var activePageID: UUID?
+    @Published var visiblePageIndex = 0
+    /// Bumped whenever page texts are changed from outside the text views (format, AI, split, style…).
+    @Published private(set) var textRevision = 0
     @Published var logoRemovalMode: LogoBackgroundMode = .smart
     @Published private(set) var isProcessingImage = false
     @Published var errorMessage: String?
-    /// Informational message (not an error).
     @Published var notice: String?
+    /// Description of the last undoable change (nil = nothing to undo).
+    @Published private(set) var undoTitle: String?
 
     let richText = RichTextController()
-    private(set) var bodyText: NSAttributedString
 
     private let store: ReportStore
     private var appliedTextStyle: TextStyleSettings
     private var originalLogoData: Data?
-    private var cursorLocation = 0
     private var hasUnsavedChanges = false
-    private let bodyChanged = PassthroughSubject<Void, Never>()
+    private var undoState: Report?
     private var cancellables = Set<AnyCancellable>()
 
     init(report: Report, store: ReportStore) {
-        self.report = report
+        let upgraded = ReportMigration.upgraded(report)
+        self.report = upgraded
         self.store = store
-        self.appliedTextStyle = report.textStyle
-        let text = BodyStyler.attributedString(from: report.body, settings: report.textStyle)
-        self.bodyText = text
-        self.images = RenderImages(report: report)
-        self.pagination = Self.paginate(text, report: report)
+        self.appliedTextStyle = upgraded.textStyle
+        let images = RenderImages(report: upgraded)
+        self.images = images
+        self.snapshot = DocumentSnapshot(report: upgraded, images: images)
+        if upgraded != report { hasUnsavedChanges = true }
         configureRichText()
         bindPipelines()
     }
 
     // MARK: - Derived
 
-    var renderContext: PageRenderContext {
-        PageRenderContext(report: report, pagination: pagination, images: images)
-    }
-
-    var cursorPhysicalPage: Int { pagination.physicalPage(forBodyPage: cursorBodyPage) }
-    var firstBodyPhysicalPage: Int { pagination.firstBodyPhysicalPage }
-
     var typingAttributes: [NSAttributedString.Key: Any] {
         BodyStyler.typingAttributes(report.textStyle)
     }
 
-    func pageLabel(forPhysicalPage page: Int) -> String {
-        ArabicFormat.pageLabel(page + 1, of: pagination.totalPages, report.page.numerals)
+    var pageCount: Int { report.pages.count }
+
+    var activePageIndex: Int {
+        activePageID.flatMap { report.pageIndex(of: $0) } ?? min(visiblePageIndex, pageCount - 1)
+    }
+
+    var activePageText: String {
+        let index = activePageIndex
+        return report.pages.indices.contains(index) ? report.pages[index].body.text : ""
+    }
+
+    func attributedText(ofPage index: Int) -> NSAttributedString {
+        guard report.pages.indices.contains(index) else { return NSAttributedString() }
+        return BodyStyler.attributedString(from: report.pages[index].body, settings: report.textStyle)
+    }
+
+    func pageLabel(_ index: Int) -> String {
+        ArabicFormat.pageLabel(index + 1, of: pageCount, report.page.numerals)
     }
 
     // MARK: - Wiring
 
     private func configureRichText() {
         richText.settingsProvider = { [weak self] in self?.report.textStyle ?? TextStyleSettings() }
-        richText.onTextChanged = { [weak self] text in self?.bodyDidChange(text) }
-        richText.onSelectionChanged = { [weak self] location in self?.selectionDidChange(location) }
+        richText.onTextChanged = { [weak self] text in
+            guard let self, let id = self.activePageID else { return }
+            self.pageTextChanged(id, text)
+        }
     }
 
     private func bindPipelines() {
@@ -78,21 +93,14 @@ final class ReportEditorViewModel: ObservableObject {
             .sink { [weak self] newValue in self?.reportWillChange(to: newValue) }
             .store(in: &cancellables)
 
-        // Re-paginate only when something that moves text changed (not frame style/colour, logo, etc.).
-        let layoutChange = $report
-            .map(LayoutKey.init)
-            .removeDuplicates()
+        $report
             .dropFirst()
-            .map { _ in () }
-
-        Publishers.Merge(layoutChange, bodyChanged)
-            .debounce(for: .milliseconds(250), scheduler: RunLoop.main)
-            .sink { [weak self] _ in self?.repaginate() }
+            .debounce(for: .milliseconds(120), scheduler: RunLoop.main)
+            .sink { [weak self] _ in self?.rebuildSnapshot() }
             .store(in: &cancellables)
 
-        let anyChange = Publishers.Merge($report.dropFirst().map { _ in () }, bodyChanged)
-
-        anyChange
+        $report
+            .dropFirst()
             .debounce(for: .seconds(1), scheduler: RunLoop.main)
             .sink { [weak self] _ in self?.saveNow() }
             .store(in: &cancellables)
@@ -100,223 +108,246 @@ final class ReportEditorViewModel: ObservableObject {
 
     private func reportWillChange(to newValue: Report) {
         hasUnsavedChanges = true
-
-        if newValue.textStyle != appliedTextStyle {
-            bodyText = BodyStyler.restyle(bodyText, from: appliedTextStyle, to: newValue.textStyle)
-            appliedTextStyle = newValue.textStyle
-            bodyRevision += 1
-        }
-
         if RenderImages.sources(of: newValue) != RenderImages.sources(of: report) {
             images = RenderImages(report: newValue)
         }
+        if newValue.textStyle != appliedTextStyle {
+            let old = appliedTextStyle
+            appliedTextStyle = newValue.textStyle
+            // Applied after this change has been stored.
+            DispatchQueue.main.async { [weak self] in self?.restylePages(from: old, to: newValue.textStyle) }
+        }
     }
 
-    private func bodyDidChange(_ text: NSAttributedString) {
-        bodyText = text
-        hasUnsavedChanges = true
-        bodyChanged.send()
+    /// Keeps relative sizes when the base size changes and applies a new default alignment to all text.
+    private func restylePages(from old: TextStyleSettings, to new: TextStyleSettings) {
+        var pages = report.pages
+        for index in pages.indices {
+            pages[index].body.shiftSizes(by: new.fontSize - old.fontSize)
+            if new.defaultAlignment != old.defaultAlignment {
+                pages[index].body.setAllAlignments(new.defaultAlignment)
+            }
+        }
+        report.pages = pages
+        textRevision += 1
     }
 
-    private func selectionDidChange(_ location: Int) {
-        cursorLocation = location
-        updateCursorPage()
+    func rebuildSnapshot() {
+        snapshot = DocumentSnapshot(report: report, images: images)
     }
 
-    private func updateCursorPage() {
-        let page = min(pagination.bodyPage(forCharacterAt: cursorLocation), pagination.lastBodyPage)
-        if page != cursorBodyPage { cursorBodyPage = page }
+    // MARK: - Text editing (called by the canvas)
+
+    func pageTextChanged(_ id: UUID, _ text: NSAttributedString) {
+        guard let index = report.pageIndex(of: id) else { return }
+        report.pages[index].body = BodyStyler.document(from: text, settings: report.textStyle)
     }
 
-    func repaginate() {
-        pagination = Self.paginate(bodyText, report: report)
-        updateCursorPage()
+    func beganEditing(page id: UUID, textView: UITextView) {
+        activePageID = id
+        richText.attach(textView)
+        if selection != nil { selection = nil }
     }
 
-    private static func paginate(_ text: NSAttributedString, report: Report) -> PaginationResult {
-        let spec = PageLayoutSpec(report: report)
-        return Paginator.paginate(
-            text,
-            spec: spec,
-            hasCover: report.cover.isEnabled,
-            boxes: EvidenceLayout.placements(report: report, spec: spec),
-            wrapsText: report.kind == .text,
-            minimumPages: report.minimumPages
-        )
+    // MARK: - Undo (pages, elements, formatting)
+
+    private func recordUndo(_ title: String) {
+        undoState = report
+        undoTitle = title
+    }
+
+    func undo() {
+        guard let saved = undoState else { return }
+        undoState = nil
+        undoTitle = nil
+        selection = nil
+        report = saved
+        textRevision += 1
+        rebuildSnapshot()
     }
 
     // MARK: - Pages
 
-    /// Adds an empty page at the end that stays even without text. Returns its index.
+    /// Inserts an empty page after `index` (or at the end). Returns its id.
     @discardableResult
-    func addPage() -> Int {
-        // A signatures-only overflow page has no text container yet; it becomes the new page.
-        let newIndex = pagination.containers.count
-        report.minimumPages = newIndex + 1
-        repaginate()
-        return min(newIndex, pagination.lastBodyPage)
+    func addPage(after index: Int? = nil) -> UUID {
+        let page = ReportPage()
+        let position = min((index ?? pageCount - 1) + 1, pageCount)
+        report.pages.insert(page, at: position)
+        visiblePageIndex = position
+        rebuildSnapshot()
+        return page.id
     }
 
-    /// Adds a page at the end with a new, empty evidence box on it. Existing boxes stay where they are.
+    var canDeletePages: Bool { pageCount > 1 }
+
+    func deletePage(at index: Int) {
+        guard pageCount > 1, report.pages.indices.contains(index) else { return }
+        recordUndo("حذف الصفحة")
+        let removed = report.pages[index]
+        report.pages.remove(at: index)
+        if let signaturePage = report.signaturePageValue {
+            report.signaturePageValue = signaturePage == index ? nil : (signaturePage > index ? signaturePage - 1 : signaturePage)
+        }
+        if activePageID == removed.id { activePageID = nil }
+        if case .element(let id) = selection, removed.elements.contains(where: { $0.id == id }) { selection = nil }
+        visiblePageIndex = min(index, pageCount - 1)
+        textRevision += 1
+        rebuildSnapshot()
+    }
+
+    func movePage(at index: Int, by offset: Int) {
+        let target = index + offset
+        guard report.pages.indices.contains(index), report.pages.indices.contains(target) else { return }
+        report.pages.swapAt(index, target)
+        if let signaturePage = report.signaturePageValue {
+            if signaturePage == index { report.signaturePageValue = target } else if signaturePage == target { report.signaturePageValue = index }
+        }
+        visiblePageIndex = target
+        textRevision += 1
+        rebuildSnapshot()
+    }
+
+    /// Moves the text that does not fit on a page to a new page right after it.
+    func moveOverflowToNewPage(_ index: Int) {
+        rebuildSnapshot()
+        guard snapshot.texts.indices.contains(index), let location = snapshot.texts[index].overflowLocation else { return }
+        let text = attributedText(ofPage: index)
+        guard location < text.length else { return }
+        recordUndo("نقل النص الزائد")
+
+        var keep = location
+        let string = text.string as NSString
+        // Break at the start of the overflowing line's word so no word is cut.
+        while keep > 0, let scalar = UnicodeScalar(string.character(at: keep - 1)),
+              !CharacterSet.whitespacesAndNewlines.contains(scalar) {
+            keep -= 1
+        }
+        if keep == 0 { keep = location }
+
+        let first = text.attributedSubstring(from: NSRange(location: 0, length: keep))
+        var restStart = keep
+        while restStart < string.length, let scalar = UnicodeScalar(string.character(at: restStart)),
+              CharacterSet.whitespacesAndNewlines.contains(scalar) {
+            restStart += 1
+        }
+        let rest = text.attributedSubstring(from: NSRange(location: restStart, length: string.length - restStart))
+
+        report.pages[index].body = BodyStyler.document(from: first, settings: report.textStyle)
+        var newPage = ReportPage()
+        newPage.body = BodyStyler.document(from: rest, settings: report.textStyle)
+        report.pages.insert(newPage, at: index + 1)
+        if let signaturePage = report.signaturePageValue, signaturePage > index {
+            report.signaturePageValue = signaturePage + 1
+        }
+        visiblePageIndex = index + 1
+        textRevision += 1
+        rebuildSnapshot()
+    }
+
+    // MARK: - Elements
+
+    func element(_ id: UUID) -> PageElement? {
+        guard let location = report.locate(element: id) else { return nil }
+        return report.pages[location.page].elements[location.element]
+    }
+
+    func updateElement(_ id: UUID, _ change: (inout PageElement) -> Void) {
+        guard let location = report.locate(element: id) else { return }
+        var element = report.pages[location.page].elements[location.element]
+        change(&element)
+        report.pages[location.page].elements[location.element] = element
+    }
+
+    /// Adds an evidence box (or text box) to a page and selects it. Returns its id.
     @discardableResult
-    func addEvidencePage() -> UUID {
-        let index = addPage()
-        return addEvidenceBlock(page: index)
+    func addElement(_ kind: PageElement.Kind, toPage index: Int) -> UUID {
+        let page = min(max(index, 0), pageCount - 1)
+        let rect = DocumentLayout.defaultRect(for: kind, report: report, spec: snapshot.spec, page: page)
+        let element = kind == .evidence ? PageElement.evidence(rect: rect) : PageElement.text(rect: rect)
+        report.pages[page].elements.append(element)
+        selection = .element(element.id)
+        rebuildSnapshot()
+        return element.id
     }
 
-    /// The last page can be removed only when it is empty (no text, evidence or text boxes on it).
-    var canRemoveLastPage: Bool {
-        let last = pagination.lastBodyPage
-        guard last > 0, !pagination.signatureOnExtraPage, report.minimumPages > last else { return false }
-        if let range = pagination.glyphRange(forBodyPage: last), range.length > 0 { return false }
-        if report.visibleEvidenceBlocks.contains(where: { $0.page >= last }) { return false }
-        if report.textBoxes.contains(where: { $0.page >= last }) { return false }
-        return true
-    }
-
-    // MARK: - Deleting any page
-
-    @Published private(set) var canUndoPageDeletion = false
-    private var pageDeletionUndo: (report: Report, text: NSAttributedString)?
-
-    enum PageDeletion {
-        case allowed
-        case cover
-        case formFirstPage
-        case onlyPage
-        case signaturesOnly
-    }
-
-    func deletion(forPhysicalPage page: Int) -> PageDeletion {
-        switch pagination.kind(ofPage: page) {
-        case .cover:
-            return .cover
-        case .body(let index):
-            if index >= pagination.containers.count { return .signaturesOnly }
-            if report.kind == .form && index == 0 { return .formFirstPage }
-            if pagination.containers.count <= 1 { return .onlyPage }
-            return .allowed
+    func setElementRect(_ id: UUID, _ rect: CGRect) {
+        updateElement(id) { element in
+            element.rect = DocumentLayout.clamp(rect, minimum: element.minimumSize)
         }
     }
 
-    /// Deletes one page: its text, evidence boxes and text boxes. Later pages move up.
-    func deletePage(physical page: Int) {
-        guard deletion(forPhysicalPage: page) == .allowed, case .body(let index) = pagination.kind(ofPage: page) else { return }
-        pageDeletionUndo = (report, bodyText)
+    func deleteElement(_ id: UUID) {
+        guard report.locate(element: id) != nil else { return }
+        recordUndo("حذف العنصر")
+        for index in report.pages.indices {
+            report.pages[index].elements.removeAll { $0.id == id }
+        }
+        if selection == .element(id) { selection = nil }
+        rebuildSnapshot()
+    }
 
-        // 1. Text on that page (plus the page break that leads into it, if it is the last page).
-        let text = NSMutableAttributedString(attributedString: bodyText)
-        if let glyphs = pagination.glyphRange(forBodyPage: index), glyphs.length > 0 {
-            var characters = pagination.layoutManager.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)
-            characters = NSIntersectionRange(characters, NSRange(location: 0, length: text.length))
-            let isLast = index == pagination.containers.count - 1
-            if isLast, characters.location > 0,
-               (text.string as NSString).character(at: characters.location - 1) == BodyDocument.pageBreakUnit {
-                characters = NSRange(location: characters.location - 1, length: characters.length + 1)
+    // Evidence content
+
+    func addEvidencePhotos(_ sources: [Data], to id: UUID) async {
+        isProcessingImage = true
+        defer { isProcessingImage = false }
+        var failed = 0
+        for data in sources {
+            guard element(id)?.evidence?.canAddItems == true else { break }
+            do {
+                let jpeg = try await ImageProcessor.photoJPEG(data)
+                updateElement(id) { $0.evidence?.items.append(EvidenceItem(kind: .photo, imageData: jpeg)) }
+            } catch {
+                failed += 1
             }
-            text.deleteCharacters(in: characters)
         }
+        if failed > 0 { errorMessage = "تعذر إضافة \(failed) من الصور." }
+    }
 
-        // 2. Boxes on that page go; boxes on later pages move up one page.
-        var report = self.report
-        report.evidenceBlocks = report.evidenceBlocks.compactMap { block in
-            guard block.page != index else { return nil }
-            var moved = block
-            if moved.page > index { moved.page -= 1 }
-            return moved
+    func addEvidenceQR(text: String, caption: String, to id: UUID) {
+        let link = text.trimmed
+        guard !link.isEmpty, element(id)?.evidence?.canAddItems == true else { return }
+        guard QRMatrix.make(link) != nil else {
+            errorMessage = "النص طويل جداً لرمز QR."
+            return
         }
-        report.textBoxes = report.textBoxes.compactMap { box in
-            guard box.page != index else { return nil }
-            var moved = box
-            if moved.page > index { moved.page -= 1 }
-            return moved
-        }
-        if report.minimumPages > index {
-            report.minimumPages = max(1, report.minimumPages - 1)
-        }
-        self.report = report
-
-        replaceBody(text, keepUndo: false)
-        repaginate()
-        canUndoPageDeletion = true
+        updateElement(id) { $0.evidence?.items.append(EvidenceItem(kind: .qr, qrText: link, caption: caption.trimmed)) }
     }
 
-    func undoPageDeletion() {
-        guard let saved = pageDeletionUndo else { return }
-        pageDeletionUndo = nil
-        canUndoPageDeletion = false
-        report = saved.report
-        replaceBody(saved.text, keepUndo: false)
-        repaginate()
+    func removeEvidenceItem(_ itemID: UUID, from id: UUID) {
+        updateElement(id) { $0.evidence?.items.removeAll { $0.id == itemID } }
     }
 
-    func removeLastPage() {
-        guard canRemoveLastPage else { return }
-        report.minimumPages = pagination.lastBodyPage
-        repaginate()
-    }
-
-    // MARK: - Persistence
-
-    func saveNow() {
-        guard hasUnsavedChanges else { return }
-        var snapshot = report
-        snapshot.body = BodyStyler.document(from: bodyText, settings: report.textStyle)
-        snapshot.updatedAt = Date()
-        store.saveInBackground(snapshot)
-        hasUnsavedChanges = false
-    }
-
-    // MARK: - Images
-
-    func importLogo(_ data: Data) async {
-        originalLogoData = data
-        await processLogo()
-    }
-
-    func reprocessLogo() async {
-        await processLogo()
-    }
-
-    private func processLogo() async {
-        guard let source = originalLogoData ?? report.header.logoPNG else { return }
-        if let processed = await processImage(source, mode: logoRemovalMode) {
-            report.header.logoPNG = processed
+    func moveEvidenceItem(_ itemID: UUID, in id: UUID, by offset: Int) {
+        updateElement(id) { element in
+            guard var block = element.evidence, let index = block.items.firstIndex(where: { $0.id == itemID }) else { return }
+            let target = index + offset
+            guard block.items.indices.contains(target) else { return }
+            block.items.swapAt(index, target)
+            element.evidence = block
         }
     }
 
-    /// Logo box on the first page in A4 points (nil when the letterhead is hidden or there is no logo).
-    func logoBox() -> CGRect? {
-        guard report.header.logoPNG != nil, pagination.spec.hasHeader(bodyPage: 0) else { return nil }
-        return PageRenderer.logoBox(header: report.header, headerRect: pagination.spec.headerRect(bodyPage: 0))
-    }
+    // MARK: - Signatures block
 
-    /// Moves and/or resizes the logo (A4 points). Size changes keep the logo square.
-    func adjustLogo(move: CGSize, grow: CGFloat) {
-        guard let current = logoBox() else { return }
-        if grow != 0 {
-            let side = current.width + grow
-            let scale = Double(side / PageRenderer.defaultLogoSide)
-            report.header.logoScale = min(max(scale, HeaderInfo.logoScaleRange.lowerBound), HeaderInfo.logoScaleRange.upperBound)
+    func setSignatureRect(_ rect: CGRect) {
+        report.signatureRectValue = DocumentLayout.clamp(rect, minimum: CGSize(width: 120, height: 60))
+        if report.signaturePageValue == nil, let current = snapshot.signature?.page, current != pageCount - 1 {
+            report.signaturePageValue = current
         }
-        // Keep the visible top-left corner where the user left it after resizing.
-        guard let resized = logoBox() else { return }
-        var offset = report.header.logoOffset
-        offset.width += move.width + (current.minX - resized.minX)
-        offset.height += move.height + (current.minY - resized.minY)
-        report.header.logoOffset = offset
     }
 
-    func resetLogoPosition() {
-        report.header.logoOffset = .zero
+    func moveSignatures(toPage index: Int) {
+        report.signaturePageValue = index >= pageCount - 1 ? nil : index
+        report.signatureRectValue = nil
+        rebuildSnapshot()
     }
 
-    func removeLogo() {
-        originalLogoData = nil
-        report.header.logoPNG = nil
+    func resetSignaturePosition() {
+        report.signatureRectValue = nil
+        report.signaturePageValue = nil
     }
-
-    // MARK: - Employees
 
     func addEmployee() {
         report.footer.employees.append(Employee())
@@ -325,10 +356,6 @@ final class ReportEditorViewModel: ObservableObject {
 
     func removeEmployee(_ id: UUID) {
         report.footer.employees.removeAll { $0.id == id }
-    }
-
-    func moveEmployees(from source: IndexSet, to destination: Int) {
-        report.footer.employees.move(fromOffsets: source, toOffset: destination)
     }
 
     func setSignature(png: Data, for employeeID: UUID) {
@@ -347,39 +374,140 @@ final class ReportEditorViewModel: ObservableObject {
         }
     }
 
-    // MARK: - Formatting & proofreading
-
-    @Published private(set) var canUndoTextChange = false
-    private var undoSnapshot: NSAttributedString?
-
-    private func replaceBody(_ text: NSAttributedString, keepUndo: Bool) {
-        if keepUndo {
-            undoSnapshot = bodyText
-            canUndoTextChange = true
+    func importStamp(_ data: Data) async {
+        if let processed = await processImage(data, mode: .smart) {
+            report.footer.stampPNG = processed
         }
-        bodyText = text
-        bodyRevision += 1
-        hasUnsavedChanges = true
-        bodyChanged.send()
     }
 
-    /// Local spacing / punctuation clean-up. Returns the number of edits.
+    // MARK: - Logo
+
+    func importLogo(_ data: Data) async {
+        originalLogoData = data
+        await processLogo()
+    }
+
+    func reprocessLogo() async {
+        await processLogo()
+    }
+
+    private func processLogo() async {
+        guard let source = originalLogoData ?? report.header.logoPNG else { return }
+        if let processed = await processImage(source, mode: logoRemovalMode) {
+            report.header.logoPNG = processed
+        }
+    }
+
+    func removeLogo() {
+        originalLogoData = nil
+        report.header.logoPNG = nil
+        if selection == .logo { selection = nil }
+    }
+
+    /// Logo box on a page in A4 points (nil when that page has no letterhead or there is no logo).
+    func logoBox(onPage index: Int) -> CGRect? {
+        let spec = snapshot.spec
+        guard report.header.logoPNG != nil, spec.hasHeader(bodyPage: index) else { return nil }
+        return PageRenderer.logoBox(header: report.header, headerRect: spec.headerRect(bodyPage: index))
+    }
+
+    /// Applies a logo frame chosen on the canvas (size from its width, position as an offset).
+    func setLogoFrame(_ rect: CGRect, onPage index: Int) {
+        let spec = snapshot.spec
+        guard spec.hasHeader(bodyPage: index) else { return }
+        let scale = Double(rect.width / PageRenderer.defaultLogoSide)
+        var header = report.header
+        header.logoScale = min(max(scale, HeaderInfo.logoScaleRange.lowerBound), HeaderInfo.logoScaleRange.upperBound)
+        header.logoOffset = .zero
+        let automatic = PageRenderer.logoBox(header: header, headerRect: spec.headerRect(bodyPage: index))
+        header.logoOffset = CGSize(width: rect.minX - automatic.minX, height: rect.minY - automatic.minY)
+        report.header = header
+    }
+
+    func resetLogoPosition() {
+        report.header.logoOffset = .zero
+        report.header.logoScale = 1
+    }
+
+    // MARK: - Organisation letterhead & frame images
+
+    func importLetterhead(_ data: Data, top: Bool) async {
+        guard let processed = await processImage(data, mode: .smart, maxPixelSize: 2400, trim: true),
+              let image = UIImage(data: processed), image.size.width > 0 else { return }
+        let aspect = Double(image.size.height / image.size.width)
+        if top {
+            report.frame.letterheadTopPNG = processed
+            report.frame.letterheadTopAspect = aspect
+        } else {
+            report.frame.letterheadBottomPNG = processed
+            report.frame.letterheadBottomAspect = aspect
+        }
+        if report.frame.style != .none && report.frame.style != .customImage {
+            report.frame.style = .none
+        }
+    }
+
+    func removeLetterhead(top: Bool) {
+        if top {
+            report.frame.letterheadTopPNG = nil
+            report.frame.letterheadTopAspect = nil
+        } else {
+            report.frame.letterheadBottomPNG = nil
+            report.frame.letterheadBottomAspect = nil
+        }
+    }
+
+    func importFrameImage(_ data: Data) async {
+        if let processed = await processImage(data, mode: .allWhite, maxPixelSize: 2400, trim: false) {
+            report.frame.customFramePNG = processed
+            report.frame.style = .customImage
+        }
+    }
+
+    func removeFrameImage() {
+        report.frame.customFramePNG = nil
+        if report.frame.style == .customImage { report.frame.style = .double }
+    }
+
+    private func processImage(_ data: Data, mode: LogoBackgroundMode, maxPixelSize: Int = 1000, trim: Bool = true) async -> Data? {
+        isProcessingImage = true
+        defer { isProcessingImage = false }
+        do {
+            return try await ImageProcessor.process(data, mode: mode, maxPixelSize: maxPixelSize, trim: trim)
+        } catch {
+            errorMessage = error.localizedDescription
+            return nil
+        }
+    }
+
+    // MARK: - Formatting & proofreading (all pages)
+
+    /// Local spacing / punctuation clean-up on every page. Returns the number of edits.
     @discardableResult
-    func formatText(keepUndo: Bool = true) -> Int {
-        let text = NSMutableAttributedString(attributedString: bodyText)
-        let edits = ArabicTextFormatter.format(text)
+    func formatAllText(recordingUndo: Bool = true) -> Int {
+        var pages = report.pages
+        var edits = 0
+        for index in pages.indices {
+            let text = NSMutableAttributedString(attributedString: attributedText(ofPage: index))
+            let count = ArabicTextFormatter.format(text)
+            guard count > 0 else { continue }
+            BodyStyler.normalizeParagraphStyles(text, settings: report.textStyle)
+            pages[index].body = BodyStyler.document(from: text, settings: report.textStyle)
+            edits += count
+        }
         guard edits > 0 else { return 0 }
-        BodyStyler.normalizeParagraphStyles(text, settings: report.textStyle)
-        replaceBody(text, keepUndo: keepUndo)
+        if recordingUndo { recordUndo("تنسيق النص") }
+        report.pages = pages
+        textRevision += 1
         return edits
     }
 
     func autoFormatIfEnabled() {
         guard report.autoFormat else { return }
-        formatText(keepUndo: false)
+        formatAllText(recordingUndo: false)
     }
 
-    /// AI spelling & grammar correction applied word by word. Returns the number of corrected words.
+    /// AI spelling & grammar correction of every page, word by word. Returns corrected words.
     func proofreadWithAI(progress: @escaping (Int, Int) -> Void) async throws -> Int {
         let context = AIReportContext(
             title: report.title,
@@ -387,126 +515,22 @@ final class ReportEditorViewModel: ObservableObject {
             administration: report.header.generalAdministration,
             department: report.header.department
         )
-        let (corrected, changes) = try await ProofreadService().proofread(bodyText, context: context, progress: progress)
-        guard changes > 0 else { return 0 }
-        let text = NSMutableAttributedString(attributedString: corrected)
-        BodyStyler.normalizeParagraphStyles(text, settings: report.textStyle)
-        replaceBody(text, keepUndo: true)
-        return changes
-    }
-
-    func undoTextChange() {
-        guard let snapshot = undoSnapshot else { return }
-        undoSnapshot = nil
-        canUndoTextChange = false
-        replaceBody(snapshot, keepUndo: false)
-    }
-
-    // MARK: - Evidence boxes
-
-    func evidencePlacement(of id: UUID) -> EvidenceLayout.Placement? {
-        guard let block = report.evidenceBlocks.first(where: { $0.id == id }) else { return nil }
-        return EvidenceLayout.placement(of: block, report: report, spec: pagination.spec)
-    }
-
-    private func updateBlock(_ id: UUID, _ change: (inout EvidenceBlock) -> Void) {
-        var blocks = report.evidenceBlocks
-        guard let index = blocks.firstIndex(where: { $0.id == id }) else { return }
-        change(&blocks[index])
-        report.evidenceBlocks = blocks
-    }
-
-    /// New empty box on the given page (automatic position). Returns its id.
-    @discardableResult
-    func addEvidenceBlock(page: Int) -> UUID {
-        let block = EvidenceBlock(page: max(0, page))
-        report.evidenceBlocks.append(block)
-        return block.id
-    }
-
-    func removeEvidenceBlock(_ id: UUID) {
-        report.evidenceBlocks.removeAll { $0.id == id }
-    }
-
-    func setEvidenceBlockPage(_ id: UUID, _ page: Int) {
-        updateBlock(id) {
-            $0.page = max(0, min(page, pagination.lastBodyPage))
-            $0.rect = nil
+        var pages = report.pages
+        var total = 0
+        for index in pages.indices where !pages[index].body.isEmpty {
+            progress(index + 1, pages.count)
+            let (corrected, changes) = try await ProofreadService().proofread(attributedText(ofPage: index), context: context) { _, _ in }
+            guard changes > 0 else { continue }
+            let text = NSMutableAttributedString(attributedString: corrected)
+            BodyStyler.normalizeParagraphStyles(text, settings: report.textStyle)
+            pages[index].body = BodyStyler.document(from: text, settings: report.textStyle)
+            total += changes
         }
-    }
-
-    func setEvidenceRect(_ id: UUID, _ rect: CGRect?) {
-        updateBlock(id) { $0.rect = rect.map(EvidenceLayout.clamp) }
-    }
-
-    func addEvidencePhotos(_ sources: [Data], to id: UUID) async {
-        isProcessingImage = true
-        defer { isProcessingImage = false }
-        var failed = 0
-        for data in sources {
-            guard report.evidenceBlocks.first(where: { $0.id == id })?.canAddItems == true else { break }
-            do {
-                let jpeg = try await ImageProcessor.photoJPEG(data)
-                updateBlock(id) { $0.items.append(EvidenceItem(kind: .photo, imageData: jpeg)) }
-            } catch {
-                failed += 1
-            }
-        }
-        if failed > 0 {
-            errorMessage = "تعذر إضافة \(failed) من الصور."
-        }
-    }
-
-    func addEvidenceQR(text: String, caption: String, to id: UUID) {
-        let link = text.trimmed
-        guard !link.isEmpty, report.evidenceBlocks.first(where: { $0.id == id })?.canAddItems == true else { return }
-        guard QRMatrix.make(link) != nil else {
-            errorMessage = "النص طويل جداً لرمز QR."
-            return
-        }
-        updateBlock(id) { $0.items.append(EvidenceItem(kind: .qr, qrText: link, caption: caption.trimmed)) }
-    }
-
-    func removeEvidenceItem(_ itemID: UUID, from id: UUID) {
-        updateBlock(id) { $0.items.removeAll { $0.id == itemID } }
-    }
-
-    func moveEvidenceItem(_ itemID: UUID, in id: UUID, by offset: Int) {
-        updateBlock(id) { block in
-            guard let index = block.items.firstIndex(where: { $0.id == itemID }) else { return }
-            let target = index + offset
-            guard block.items.indices.contains(target) else { return }
-            block.items.swapAt(index, target)
-        }
-    }
-
-    // MARK: - Text boxes
-
-    func addTextBox() {
-        let page = min(cursorBodyPage, pagination.lastBodyPage)
-        let body = pagination.spec.bodyRect(bodyPage: page)
-        let rect = CGRect(x: body.midX - 110, y: body.midY - 30, width: 220, height: 60)
-        report.textBoxes.append(TextBox(text: "نص جديد", page: page, rect: rect))
-    }
-
-    func removeTextBox(_ id: UUID) {
-        report.textBoxes.removeAll { $0.id == id }
-    }
-
-    func setTextBoxRect(_ id: UUID, _ rect: CGRect) {
-        guard let index = report.textBoxes.firstIndex(where: { $0.id == id }) else { return }
-        let page = CGRect(origin: .zero, size: A4.size).insetBy(dx: 4, dy: 4)
-        var clamped = rect
-        clamped.size.width = min(max(clamped.width, TextBox.minimumSize.width), page.width)
-        clamped.size.height = min(max(clamped.height, TextBox.minimumSize.height), page.height)
-        clamped.origin.x = min(max(clamped.minX, page.minX), page.maxX - clamped.width)
-        clamped.origin.y = min(max(clamped.minY, page.minY), page.maxY - clamped.height)
-        report.textBoxes[index].rect = clamped
-    }
-
-    func setTextBoxPage(_ id: UUID, _ page: Int) {
-        guard let index = report.textBoxes.firstIndex(where: { $0.id == id }) else { return }
-        report.textBoxes[index].page = max(0, min(page, pagination.lastBodyPage))
+        guard total > 0 else { return 0 }
+        recordUndo("التدقيق الإملائي")
+        report.pages = pages
+        textRevision += 1
+        return total
     }
 
     // MARK: - Form fields
@@ -533,103 +557,7 @@ final class ReportEditorViewModel: ObservableObject {
         }
     }
 
-    // MARK: - Free signature placement
-
-    var lastBodyPhysicalPage: Int { pagination.physicalPage(forBodyPage: pagination.lastBodyPage) }
-
-    func signatureLayout() -> PageRenderer.SignatureLayout {
-        PageRenderer.signatureLayout(report: report, spec: pagination.spec,
-                                     lastBodyPage: pagination.lastBodyPage, hasStamp: images.stamp != nil)
-    }
-
-    /// Moves an employee cell or the stamp by `delta` A4 points, keeping it on the page.
-    func moveSignatureElement(_ element: SignatureElement, by delta: CGSize) {
-        guard delta != .zero else { return }
-        var automatic = report
-        automatic.footer.resetPositions()
-        let base = PageRenderer.signatureLayout(report: automatic, spec: pagination.spec,
-                                                lastBodyPage: pagination.lastBodyPage, hasStamp: images.stamp != nil)
-        let current = signatureLayout()
-        let page = CGRect(origin: .zero, size: pagination.spec.pageSize)
-
-        switch element {
-        case .employee(let id):
-            guard let index = report.footer.employees.firstIndex(where: { $0.id == id }),
-                  let now = current.employees.first(where: { $0.id == id })?.rect,
-                  let origin = base.employees.first(where: { $0.id == id })?.rect else { return }
-            let target = PageRenderer.clamp(now.offsetBy(dx: delta.width, dy: delta.height), to: page)
-            report.footer.employees[index].offset = CGSize(width: target.minX - origin.minX, height: target.minY - origin.minY)
-        case .stamp:
-            guard let now = current.stamp, let origin = base.stamp else { return }
-            let target = PageRenderer.clamp(now.offsetBy(dx: delta.width, dy: delta.height), to: page)
-            report.footer.stampOffset = CGSize(width: target.minX - origin.minX, height: target.minY - origin.minY)
-        }
-    }
-
-    func resetSignaturePositions() {
-        report.footer.resetPositions()
-    }
-
-    // MARK: - Custom frame
-
-    func importFrameImage(_ data: Data) async {
-        if let processed = await processImage(data, mode: .allWhite, maxPixelSize: 2400, trim: false) {
-            report.frame.customFramePNG = processed
-            report.frame.style = .customImage
-        }
-    }
-
-    /// Imports a letterhead image: removes the outer white background, trims it and records its proportions.
-    func importLetterhead(_ data: Data, top: Bool) async {
-        guard let processed = await processImage(data, mode: .smart, maxPixelSize: 2400, trim: true),
-              let image = UIImage(data: processed), image.size.width > 0 else { return }
-        let aspect = Double(image.size.height / image.size.width)
-        if top {
-            // The app's own letterhead (logo, admin data, date) stays as it is, below the banner.
-            report.frame.letterheadTopPNG = processed
-            report.frame.letterheadTopAspect = aspect
-        } else {
-            report.frame.letterheadBottomPNG = processed
-            report.frame.letterheadBottomAspect = aspect
-        }
-        if report.frame.style != .none && report.frame.style != .customImage {
-            report.frame.style = .none
-        }
-    }
-
-    func removeLetterhead(top: Bool) {
-        if top {
-            report.frame.letterheadTopPNG = nil
-            report.frame.letterheadTopAspect = nil
-        } else {
-            report.frame.letterheadBottomPNG = nil
-            report.frame.letterheadBottomAspect = nil
-        }
-    }
-
-    func removeFrameImage() {
-        report.frame.customFramePNG = nil
-        if report.frame.style == .customImage { report.frame.style = .double }
-    }
-
-    func importStamp(_ data: Data) async {
-        if let processed = await processImage(data, mode: .smart) {
-            report.footer.stampPNG = processed
-        }
-    }
-
-    private func processImage(_ data: Data, mode: LogoBackgroundMode, maxPixelSize: Int = 1000, trim: Bool = true) async -> Data? {
-        isProcessingImage = true
-        defer { isProcessingImage = false }
-        do {
-            return try await ImageProcessor.process(data, mode: mode, maxPixelSize: maxPixelSize, trim: trim)
-        } catch {
-            errorMessage = error.localizedDescription
-            return nil
-        }
-    }
-
-    // MARK: - Templates
+    // MARK: - Header templates
 
     func makeTemplate(named name: String) -> HeaderTemplate {
         let trimmed = name.trimmed
@@ -647,113 +575,26 @@ final class ReportEditorViewModel: ObservableObject {
         report.frame = template.frame
     }
 
-    // MARK: - Sections (content between page breaks)
+    // MARK: - Persistence & export
 
-    func sections() -> [BodySection] {
-        let text = bodyText.string as NSString
-        var result: [BodySection] = []
-        var start = 0
-
-        func section(_ id: Int, _ range: NSRange) -> BodySection {
-            let preview = text.substring(with: range)
-                .replacingOccurrences(of: "\n", with: " ")
-                .trimmed
-            return BodySection(id: id, range: range, preview: String(preview.prefix(120)))
-        }
-
-        for index in 0..<text.length where text.character(at: index) == BodyDocument.pageBreakUnit {
-            let item = section(result.count, NSRange(location: start, length: index - start))
-            result.append(item)
-            start = index + 1
-        }
-        let last = section(result.count, NSRange(location: start, length: text.length - start))
-        result.append(last)
-        return result
+    func saveNow() {
+        guard hasUnsavedChanges else { return }
+        var copy = report
+        copy.updatedAt = Date()
+        store.saveInBackground(copy)
+        hasUnsavedChanges = false
     }
-
-    func reorderSections(_ order: [Int]) {
-        let current = sections()
-        guard order.count == current.count, Set(order) == Set(current.indices), order != Array(current.indices) else { return }
-
-        let output = NSMutableAttributedString()
-        for (position, index) in order.enumerated() {
-            if position > 0 {
-                output.append(NSAttributedString(string: BodyDocument.pageBreak, attributes: typingAttributes))
-            }
-            output.append(bodyText.attributedSubstring(from: current[index].range))
-        }
-        bodyText = output
-        bodyRevision += 1
-        hasUnsavedChanges = true
-        bodyChanged.send()
-    }
-
-    // MARK: - Export
 
     func exportPDF() -> URL? {
+        selection = nil
         autoFormatIfEnabled()
-        repaginate()
+        rebuildSnapshot()
         saveNow()
         do {
-            return try PDFExporter.export(renderContext)
+            return try PDFExporter.export(snapshot)
         } catch {
             errorMessage = "تعذر إنشاء ملف PDF: \(error.localizedDescription)"
             return nil
         }
     }
-}
-
-enum SignatureElement: Hashable {
-    case employee(UUID)
-    case stamp
-}
-
-/// The parts of a report that affect where text falls on the pages.
-private struct LayoutKey: Equatable {
-    let textStyle: TextStyleSettings
-    let page: PageSettings
-    let headerEnabled: Bool
-    let headerPlacement: HeaderPlacement
-    let frameIsNone: Bool
-    let coverEnabled: Bool
-    let addressee: AddresseeSettings
-    let addresseeFontSize: Double
-    let signatureBlock: Bool
-    let employeeCount: Int
-    let hasStamp: Bool
-    let kind: ReportKind
-    let evidenceBoxes: [EvidenceKey]
-    let minimumPages: Int
-    let letterhead: [Double?]
-    let letterheadAllPages: Bool
-    let letterheadOffsets: [Double]
-
-    init(_ report: Report) {
-        textStyle = report.textStyle
-        page = report.page
-        headerEnabled = report.header.isEnabled
-        headerPlacement = report.header.placement
-        frameIsNone = report.frame.style == .none
-        coverEnabled = report.cover.isEnabled
-        addressee = report.addressee
-        addresseeFontSize = report.addresseeFontSize
-        signatureBlock = report.footer.showSignatureBlock
-        employeeCount = report.footer.employees.count
-        hasStamp = report.footer.stampPNG != nil
-        kind = report.kind
-        evidenceBoxes = report.visibleEvidenceBlocks.map { EvidenceKey(page: $0.page, rect: $0.rect) }
-        minimumPages = report.minimumPages
-        let frame = report.frame
-        letterhead = [
-            frame.letterheadTopPNG == nil ? nil : frame.letterheadTopAspect, frame.letterheadTopScale,
-            frame.letterheadBottomPNG == nil ? nil : frame.letterheadBottomAspect, frame.letterheadBottomScale
-        ]
-        letterheadAllPages = frame.letterheadAllPages
-        letterheadOffsets = [frame.letterheadTopOffset, frame.letterheadBottomOffset]
-    }
-}
-
-private struct EvidenceKey: Equatable {
-    let page: Int
-    let rect: CGRect?
 }

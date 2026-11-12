@@ -13,20 +13,20 @@ enum PDFExportError: LocalizedError {
 /// Exports all pages into a single vector PDF (text stays selectable and sharp; frames are paths).
 @MainActor
 enum PDFExporter {
-    static func export(_ render: PageRenderContext) throws -> URL {
-        let pageCount = render.pagination.totalPages
+    static func export(_ snapshot: DocumentSnapshot) throws -> URL {
+        let pageCount = snapshot.pageCount
         guard pageCount > 0 else { throw PDFExportError.emptyDocument }
 
         let format = UIGraphicsPDFRendererFormat()
         // Only the report title: no app or developer credits inside shared documents.
         format.documentInfo = [
-            kCGPDFContextTitle as String: render.report.title
+            kCGPDFContextTitle as String: snapshot.report.title
         ]
         let renderer = UIGraphicsPDFRenderer(bounds: A4.bounds, format: format)
 
         let folder = TempFiles.exportsFolder
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let url = folder.appendingPathComponent(fileName(for: render.report.title)).appendingPathExtension("pdf")
+        let url = folder.appendingPathComponent(fileName(for: snapshot.report.title)).appendingPathExtension("pdf")
         if FileManager.default.fileExists(atPath: url.path) {
             try FileManager.default.removeItem(at: url)
         }
@@ -34,7 +34,7 @@ enum PDFExporter {
         try renderer.writePDF(to: url) { context in
             for page in 0..<pageCount {
                 context.beginPage()
-                PageRenderer.draw(page: page, context: render, in: context.cgContext)
+                PageRenderer.draw(page: page, snapshot: snapshot, in: context.cgContext)
             }
         }
         return url
