@@ -5,7 +5,7 @@ import Foundation
 /// Body text on the same page flows around it, so nothing overlaps.
 struct PageElement: Identifiable, Codable, Equatable {
     enum Kind: String, Codable {
-        case evidence, text
+        case evidence, text, table
     }
 
     var id = UUID()
@@ -14,6 +14,7 @@ struct PageElement: Identifiable, Codable, Equatable {
     var rect: CGRect
     var evidence: EvidenceBlock?
     var text: TextBox?
+    var table: TableBlock?
 
     static func evidence(rect: CGRect) -> PageElement {
         PageElement(kind: .evidence, rect: rect, evidence: EvidenceBlock())
@@ -23,8 +24,25 @@ struct PageElement: Identifiable, Codable, Equatable {
         PageElement(kind: .text, rect: rect, text: TextBox(text: content))
     }
 
+    static func table(rect: CGRect) -> PageElement {
+        PageElement(kind: .table, rect: rect, table: TableBlock())
+    }
+
     var minimumSize: CGSize {
-        kind == .evidence ? CGSize(width: 90, height: 70) : TextBox.minimumSize
+        switch kind {
+        case .evidence: return CGSize(width: 90, height: 70)
+        case .text: return TextBox.minimumSize
+        case .table: return CGSize(width: 120, height: 40)
+        }
+    }
+
+    /// Arabic name shown in menus.
+    var title: String {
+        switch kind {
+        case .evidence: return "الشواهد"
+        case .text: return "مربع النص"
+        case .table: return "الجدول"
+        }
     }
 }
 

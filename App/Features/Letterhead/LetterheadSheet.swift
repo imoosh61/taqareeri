@@ -35,6 +35,8 @@ struct LetterheadSheet: View {
                         AdministrativePage(vm: vm)
                     }
                     link("التاريخ والرقم", icon: "calendar", detail: vm.report.header.showDate ? nil : "مخفي") { DatePage(vm: vm) }
+                    link("عبارة أعلى الصفحة (عاجل / سري)", icon: "exclamationmark.bubble",
+                         detail: vm.report.markStorage?.text.trimmed.isEmpty == false ? vm.report.markStorage?.text : nil) { MarkPage(vm: vm) }
                 } header: {
                     Text("الترويسة")
                 } footer: {
@@ -232,6 +234,11 @@ private struct DatePage: View {
                     Toggle("إظهار اليوم", isOn: $vm.report.header.showDayName)
                 }
                 TextField("الرقم المرجعي", text: $vm.report.header.referenceNumber)
+                if vm.report.header.referenceNumber.trimmed.isEmpty && OutgoingNumbering.isEnabled {
+                    Button("إعطاء الرقم التالي (\(OutgoingNumbering.preview))") {
+                        vm.report.header.referenceNumber = OutgoingNumbering.takeNext()
+                    }
+                }
                 TextField("المرفقات (اختياري)", text: $vm.report.header.attachments)
                 Picker("الأرقام", selection: $vm.report.page.numerals) {
                     ForEach(NumeralStyle.allCases) { Text($0.title).tag($0) }
@@ -243,6 +250,93 @@ private struct DatePage: View {
                                defaultValue: HeaderInfo.defaultDateFontSize, numerals: vm.report.page.numerals)
                 HorizontalPositionControl(title: "الموضع", offset: $vm.report.header.dateOffset,
                                           alignment: $vm.report.header.dateAlignment)
+            }
+            OutgoingNumberingSection()
+        }
+    }
+}
+
+/// Automatic outgoing numbers (رقم الصادر) for every new report.
+private struct OutgoingNumberingSection: View {
+    @AppStorage(OutgoingNumbering.enabledKey) private var enabled = false
+    @AppStorage(OutgoingNumbering.prefixKey) private var prefix = ""
+    @AppStorage(OutgoingNumbering.nextKey) private var next = 1
+
+    var body: some View {
+        Section {
+            Toggle("ترقيم الصادر تلقائياً", isOn: $enabled)
+            if enabled {
+                TextField("بادئة (اختياري) مثل: ٤٧/", text: $prefix)
+                Stepper(value: $next, in: 1...999_999) {
+                    HStack {
+                        Text("الرقم التالي")
+                        Spacer()
+                        Text(OutgoingNumbering.preview).foregroundStyle(.secondary)
+                    }
+                }
+            }
+        } header: {
+            Text("الترقيم")
+        } footer: {
+            Text(enabled ? "كل تقرير جديد يأخذ الرقم التالي تلقائياً في خانة الرقم المرجعي." : "عند التفعيل يُعطى كل تقرير جديد رقماً متسلسلاً.")
+        }
+    }
+}
+
+/// «عاجل» / «سري» line: centered under the letterhead, one line above the greeting.
+private struct MarkPage: View {
+    @ObservedObject var vm: ReportEditorViewModel
+
+    private var enabled: Binding<Bool> {
+        Binding(
+            get: { vm.report.markStorage != nil },
+            set: { vm.report.markStorage = $0 ? (vm.report.markStorage ?? TextMark()) : nil }
+        )
+    }
+
+    private func binding<Value>(_ keyPath: WritableKeyPath<TextMark, Value>) -> Binding<Value> {
+        Binding(
+            get: { (vm.report.markStorage ?? TextMark())[keyPath: keyPath] },
+            set: { value in
+                var mark = vm.report.markStorage ?? TextMark()
+                mark[keyPath: keyPath] = value
+                vm.report.markStorage = mark
+            }
+        )
+    }
+
+    var body: some View {
+        EditingPage(vm: vm, title: "عبارة أعلى الصفحة") {
+            Section {
+                Toggle("إظهار العبارة", isOn: enabled)
+                if vm.report.markStorage != nil {
+                    TextField("العبارة", text: binding(\.text))
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack {
+                            ForEach(TextMark.suggestions, id: \.self) { suggestion in
+                                Button(suggestion) { binding(\.text).wrappedValue = suggestion }
+                                    .buttonStyle(.bordered)
+                                    .tint(vm.report.markStorage?.text == suggestion ? .red : .secondary)
+                            }
+                        }
+                    }
+                }
+            } footer: {
+                Text("تظهر في منتصف الصفحة الأولى، تحت الشعار بسطر وفوق «السلام عليكم».")
+            }
+            if vm.report.markStorage != nil {
+                Section("الشكل") {
+                    Toggle("داخل إطار", isOn: binding(\.boxed))
+                    FontSizeSlider(title: "حجم الخط", value: binding(\.fontSize), defaultValue: 15,
+                                   numerals: vm.report.page.numerals, range: 10...26)
+                    Picker("اللون", selection: binding(\.colorHex)) {
+                        Text("أحمر").tag("C62828")
+                        Text("أسود").tag("000000")
+                        Text("أزرق").tag("1F3A5F")
+                        Text("أخضر").tag("1B5E20")
+                    }
+                    .pickerStyle(.segmented)
+                }
             }
         }
     }

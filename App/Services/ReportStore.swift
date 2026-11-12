@@ -109,6 +109,9 @@ final class ReportStore: ObservableObject {
             report.header = header
             report.frame = template.frame
         }
+        if OutgoingNumbering.isEnabled {
+            report.header.referenceNumber = OutgoingNumbering.takeNext()
+        }
         if kind == .form {
             let formTemplate = form ?? .blank
             report.kind = .form
@@ -120,8 +123,8 @@ final class ReportStore: ObservableObject {
             report.textStyle.fontSize = 13
             report.footer.showSignatureBlock = true
             report.footer.employees = [
-                Employee(label: "معلم/ة المادة"),
-                Employee(label: "مدير/ة المدرسة")
+                Employee(label: "المنفذ"),
+                Employee(label: "المدير المباشر")
             ]
             // An evidence box ready below the fields.
             let spec = PageLayoutSpec(report: report)
@@ -140,7 +143,7 @@ final class ReportStore: ObservableObject {
         copy.createdAt = Date()
         copy.updatedAt = Date()
         copy.header.date = Date()
-        copy.header.referenceNumber = ""
+        copy.header.referenceNumber = OutgoingNumbering.isEnabled ? OutgoingNumbering.takeNext() : ""
         copy.pages = copy.pages.map { page in
             var fresh = page
             fresh.id = UUID()

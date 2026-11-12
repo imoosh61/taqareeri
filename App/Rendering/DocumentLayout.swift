@@ -143,6 +143,11 @@ enum DocumentLayout {
         switch kind {
         case .text:
             return CGRect(x: area.midX - 110, y: area.minY + min(area.height / 2, 200), width: 220, height: 60)
+        case .table:
+            let height = min(TableBlock().preferredHeight, area.height * 0.6)
+            let y = report.pages.indices.contains(page) && report.pages[page].body.isEmpty
+                ? area.minY : area.minY + min(area.height * 0.35, 220)
+            return clamp(CGRect(x: area.minX, y: y, width: area.width, height: height), minimum: CGSize(width: 120, height: 40))
         case .evidence:
             var bottom = area.maxY
             if let signature = signaturePlacement(report: report, spec: spec, pageCount: report.pages.count),

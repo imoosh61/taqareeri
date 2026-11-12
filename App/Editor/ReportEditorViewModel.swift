@@ -143,6 +143,21 @@ final class ReportEditorViewModel: ObservableObject {
         report.pages[index].body = BodyStyler.document(from: text, settings: report.textStyle)
     }
 
+    /// Inserts a ready phrase at the cursor, or at the end of the visible page when not writing.
+    func insertPhrase(_ phrase: String) {
+        if let textView = richText.textView, textView.window != nil, activePageID != nil {
+            richText.insertText(phrase)
+            return
+        }
+        let index = min(visiblePageIndex, pageCount - 1)
+        let current = attributedText(ofPage: index)
+        let text = NSMutableAttributedString(attributedString: current)
+        let prefix = current.length == 0 || current.string.hasSuffix("\n") ? "" : "\n"
+        text.append(NSAttributedString(string: prefix + phrase, attributes: typingAttributes))
+        pageTextChanged(report.pages[index].id, text)
+        textRevision += 1
+    }
+
     func beganEditing(page id: UUID, textView: UITextView) {
         activePageID = id
         richText.attach(textView)
@@ -208,6 +223,21 @@ final class ReportEditorViewModel: ObservableObject {
         rebuildSnapshot()
     }
 
+    /// Moves a page to any position (drag & drop in the preview).
+    func movePage(from source: Int, to destination: Int) {
+        guard report.pages.indices.contains(source), report.pages.indices.contains(destination), source != destination else { return }
+        recordUndo("ترتيب الصفحات")
+        var pages = report.pages
+        let page = pages.remove(at: source)
+        pages.insert(page, at: destination)
+        let signatureID = report.signaturePageValue.flatMap { report.pages.indices.contains($0) ? report.pages[$0].id : nil }
+        report.pages = pages
+        if let signatureID { report.signaturePageValue = pages.firstIndex { $0.id == signatureID } }
+        visiblePageIndex = destination
+        textRevision += 1
+        rebuildSnapshot()
+    }
+
     /// Moves the text that does not fit on a page to a new page right after it.
     func moveOverflowToNewPage(_ index: Int) {
         rebuildSnapshot()
@@ -264,7 +294,12 @@ final class ReportEditorViewModel: ObservableObject {
     func addElement(_ kind: PageElement.Kind, toPage index: Int) -> UUID {
         let page = min(max(index, 0), pageCount - 1)
         let rect = DocumentLayout.defaultRect(for: kind, report: report, spec: snapshot.spec, page: page)
-        let element = kind == .evidence ? PageElement.evidence(rect: rect) : PageElement.text(rect: rect)
+        let element: PageElement
+        switch kind {
+        case .evidence: element = .evidence(rect: rect)
+        case .text: element = .text(rect: rect)
+        case .table: element = .table(rect: rect)
+        }
         report.pages[page].elements.append(element)
         selection = .element(element.id)
         rebuildSnapshot()
@@ -275,6 +310,24 @@ final class ReportEditorViewModel: ObservableObject {
         updateElement(id) { element in
             element.rect = DocumentLayout.clamp(rect, minimum: element.minimumSize)
         }
+    }
+
+    /// Moves an element to another page (keeping its place unless a new rect is given).
+    func moveElement(_ id: UUID, toPage target: Int, rect: CGRect? = nil) {
+        guard let location = report.locate(element: id), report.pages.indices.contains(target) else { return }
+        guard location.page != target else {
+            if let rect { setElementRect(id, rect) }
+            return
+        }
+        recordUndo("نقل العنصر")
+        var pages = report.pages
+        var element = pages[location.page].elements.remove(at: location.element)
+        element.rect = DocumentLayout.clamp(rect ?? element.rect, minimum: element.minimumSize)
+        pages[target].elements.append(element)
+        report.pages = pages
+        selection = .element(id)
+        visiblePageIndex = target
+        rebuildSnapshot()
     }
 
     func deleteElement(_ id: UUID) {
@@ -583,6 +636,20 @@ final class ReportEditorViewModel: ObservableObject {
         copy.updatedAt = Date()
         store.saveInBackground(copy)
         hasUnsavedChanges = false
+    }
+
+    /// One JPG per page (for WhatsApp and similar).
+    func exportImages() -> [URL] {
+        selection = nil
+        autoFormatIfEnabled()
+        rebuildSnapshot()
+        saveNow()
+        do {
+            return try ImageExporter.export(snapshot)
+        } catch {
+            errorMessage = "تعذر إنشاء الصور: \(error.localizedDescription)"
+            return []
+        }
     }
 
     func exportPDF() -> URL? {

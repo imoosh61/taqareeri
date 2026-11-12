@@ -448,6 +448,9 @@ struct Report: Identifiable, Codable, Equatable {
     var signatureRectValue: CGRect?
     /// Page of the signatures block (nil = always the last page).
     var signaturePageValue: Int?
+    // Version 2.1
+    /// Line at the top of the first page such as «عاجل» (nil = none).
+    var markStorage: TextMark?
 
     /// Body pages that always exist, even when empty (pages added by the user).
     var minimumPages: Int {

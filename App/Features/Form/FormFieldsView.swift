@@ -43,7 +43,7 @@ struct FormFieldsSheet: View {
                         Button(template.title) { pendingTemplate = template }
                     }
                 } label: {
-                    Label("استبدال الحقول بقالب جاهز", systemImage: "square.on.square")
+                    Label(FormTemplate.all.isEmpty ? "إعادة الحقول الأساسية" : "استبدال الحقول بقالب جاهز", systemImage: "square.on.square")
                 }
             } footer: {
                 Text("الحقول تُرتَّب من اليمين: حقلان «نصف» أو ثلاثة «ثلث» في السطر الواحد.")
@@ -141,14 +141,14 @@ struct FormTemplatePicker: View {
     var body: some View {
         NavigationStack {
             List {
-                Section {
-                    ForEach(FormTemplate.all) { template in
-                        row(template)
+                if !FormTemplate.all.isEmpty {
+                    Section {
+                        ForEach(FormTemplate.all) { template in
+                            row(template)
+                        }
+                    } header: {
+                        Text("نماذج جاهزة")
                     }
-                } header: {
-                    Text("قوالب جاهزة للمعلمين")
-                } footer: {
-                    Text("الأهداف والوصف مكتوبة مسبقاً، عدّل ما يلزم فقط.")
                 }
                 Section {
                     row(FormTemplate.blank)

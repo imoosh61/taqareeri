@@ -10,7 +10,7 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    MARKETING_VERSION: "2.0.0"
+    MARKETING_VERSION: "2.1.0"
     CURRENT_PROJECT_VERSION: "7"
 
 targets:
@@ -47,6 +47,7 @@ targets:
         NSMicrophoneUsageDescription: "يستخدم التطبيق الميكروفون لتحويل كلامك إلى نص داخل التقرير."
         NSSpeechRecognitionUsageDescription: "يستخدم التطبيق التعرّف على الكلام لكتابة التقرير بالإملاء الصوتي."
         NSPhotoLibraryUsageDescription: "لاختيار شعار الجهة أو التوقيع أو الختم من ألبوم الصور."
+        NSCameraUsageDescription: "لمسح المستندات والأوراق وإضافتها كشواهد في التقرير."
         UIAppFonts:
           - Amiri-Regular.ttf
           - Amiri-Bold.ttf

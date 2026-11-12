@@ -24,6 +24,8 @@ struct PageLayoutSpec {
     let signatureBlockHeight: CGFloat
     /// Height of the optional addressee block at the top of the first text page.
     let addresseeHeight: CGFloat
+    /// Height of the optional mark line («عاجل») at the top of the first page.
+    let markHeight: CGFloat
     /// Organisation letterhead images (zero size when absent).
     let topLetterheadSize: CGSize
     let bottomLetterheadSize: CGSize
@@ -48,6 +50,7 @@ struct PageLayoutSpec {
         reservesFooter = report.page.showPageNumbers
         signatureBlockHeight = report.footer.showSignatureBlock ? Self.signatureHeight(for: report.footer) : 0
         addresseeHeight = Self.addresseeHeight(for: report)
+        markHeight = report.markStorage?.height ?? 0
 
         let frame = report.frame
         func size(_ data: Data?, _ aspect: Double?, _ scale: Double) -> CGSize {
@@ -115,8 +118,13 @@ struct PageLayoutSpec {
         return CGFloat(lines) * addresseeLineHeight(fontSize: report.addresseeFontSize) + 14
     }
 
+    /// Mark line: right under the letterhead, centered, above the addressee and greeting.
+    var markRect: CGRect {
+        CGRect(x: marginHorizontal, y: contentTop(bodyPage: 0), width: contentWidth, height: markHeight)
+    }
+
     var addresseeRect: CGRect {
-        return CGRect(x: marginHorizontal, y: contentTop(bodyPage: 0), width: contentWidth, height: addresseeHeight)
+        CGRect(x: marginHorizontal, y: contentTop(bodyPage: 0) + markHeight, width: contentWidth, height: addresseeHeight)
     }
 
     static let employeeRowHeight: CGFloat = 112
@@ -151,7 +159,7 @@ struct PageLayoutSpec {
     }
 
     func bodyRect(bodyPage: Int) -> CGRect {
-        let top = contentTop(bodyPage: bodyPage) + (bodyPage == 0 ? addresseeHeight : 0)
+        let top = contentTop(bodyPage: bodyPage) + (bodyPage == 0 ? markHeight + addresseeHeight : 0)
         let bottom = pageSize.height - effectiveMarginBottom(bodyPage: bodyPage) - footerHeight
         return CGRect(x: marginHorizontal, y: top, width: contentWidth, height: max(bottom - top, 40))
     }

@@ -97,7 +97,8 @@ struct HeaderStripPreview: View {
 
     var body: some View {
         let spec = snapshot.spec
-        let visible = max(spec.headerRect(bodyPage: page).maxY, spec.topLetterheadRect(bodyPage: page)?.maxY ?? 0) + 10
+        let visible = max(spec.headerRect(bodyPage: page).maxY, spec.topLetterheadRect(bodyPage: page)?.maxY ?? 0,
+                          page == 0 && spec.markHeight > 0 ? spec.markRect.maxY : 0) + 10
         GeometryReader { proxy in
             let width = proxy.size.width
             A4PageView(page: page, snapshot: snapshot)

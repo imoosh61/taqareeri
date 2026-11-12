@@ -118,6 +118,15 @@ struct IdentifiedURL: Identifiable {
     let url: URL
 }
 
+struct ShareItems: Identifiable {
+    let id = UUID()
+    let urls: [URL]
+}
+
+enum ExportFormat {
+    case pdf, images
+}
+
 struct PageRef: Identifiable, Hashable {
     let id: Int
 }

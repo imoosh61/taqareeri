@@ -9,12 +9,12 @@ struct ReportEditorView: View {
     @AppStorage("spellcheck.live") private var liveSpellCheck = true
 
     @State private var sheet: EditorSheet?
-    @State private var shareItem: IdentifiedURL?
+    @State private var shareItem: ShareItems?
     @State private var scrollRequest = 0
     @State private var pendingPageDeletion = false
 
     enum EditorSheet: Identifiable {
-        case letterhead, format, signatures, fields, preview, ai, dictation
+        case letterhead, format, signatures, fields, preview, ai, dictation, phrases
         case element(UUID)
 
         var id: String {
@@ -78,7 +78,7 @@ struct ReportEditorView: View {
         }
         .sheet(item: $sheet) { item in sheetContent(item) }
         .sheet(item: $shareItem, onDismiss: TempFiles.cleanup) { item in
-            ShareSheet(items: [item.url])
+            ShareSheet(items: item.urls)
         }
         .confirmationDialog("حذف الصفحة \(ArabicFormat.number(vm.visiblePageIndex + 1, vm.report.page.numerals))؟",
                             isPresented: $pendingPageDeletion, titleVisibility: .visible) {
@@ -111,6 +111,7 @@ struct ReportEditorView: View {
             Button { addPage(after: index) } label: { Label("صفحة جديدة بعد هذه", systemImage: "plus.rectangle.portrait") }
             Button { vm.addElement(.evidence, toPage: index); openSelected() } label: { Label("شواهد في هذه الصفحة", systemImage: "photo.on.rectangle") }
             Button { vm.addElement(.text, toPage: index); openSelected() } label: { Label("مربع نص في هذه الصفحة", systemImage: "character.textbox") }
+            Button { vm.addElement(.table, toPage: index); openSelected() } label: { Label("جدول في هذه الصفحة", systemImage: "tablecells") }
             if vm.report.showsSignatures {
                 Button { vm.moveSignatures(toPage: index) } label: { Label("نقل التوقيعات إلى هذه الصفحة", systemImage: "signature") }
             }
@@ -162,7 +163,10 @@ struct ReportEditorView: View {
             Menu {
                 Button { addPage(after: vm.visiblePageIndex) } label: { Label("صفحة جديدة", systemImage: "plus.rectangle.portrait") }
                 Button { vm.addElement(.evidence, toPage: vm.visiblePageIndex); openSelected() } label: { Label("شواهد (صور / QR)", systemImage: "photo.on.rectangle") }
+                Button { vm.addElement(.table, toPage: vm.visiblePageIndex); openSelected() } label: { Label("جدول", systemImage: "tablecells") }
                 Button { vm.addElement(.text, toPage: vm.visiblePageIndex); openSelected() } label: { Label("مربع نص", systemImage: "character.textbox") }
+                Divider()
+                Button { sheet = .phrases } label: { Label("عبارات جاهزة", systemImage: "text.quote") }
                 Button { sheet = .dictation } label: { Label("إملاء صوتي", systemImage: "mic") }
             } label: {
                 barItem("إضافة", "plus.circle.fill", prominent: true)
@@ -184,7 +188,22 @@ struct ReportEditorView: View {
         HStack(spacing: 0) {
             switch selection {
             case .element(let id):
-                Button { sheet = .element(id) } label: { barItem(vm.element(id)?.kind == .text ? "تعديل النص" : "الصور", "pencil", prominent: true) }
+                Button { sheet = .element(id) } label: { barItem(editTitle(id), "pencil", prominent: true) }
+                if vm.pageCount > 1 {
+                    Menu {
+                        let current = vm.report.locate(element: id)?.page
+                        ForEach(0..<vm.pageCount, id: \.self) { page in
+                            if page != current {
+                                Button("إلى الصفحة \(ArabicFormat.number(page + 1, vm.report.page.numerals))") {
+                                    vm.moveElement(id, toPage: page)
+                                    scrollRequest += 1
+                                }
+                            }
+                        }
+                    } label: {
+                        barItem("نقل لصفحة", "arrow.up.arrow.down.square")
+                    }
+                }
                 Button { vm.deleteElement(id) } label: { barItem("حذف", "trash") }
             case .signatures:
                 Button { sheet = .signatures } label: { barItem("الأسماء", "person.2", prominent: true) }
@@ -200,7 +219,7 @@ struct ReportEditorView: View {
         .padding(.bottom, 2)
         .background(.bar)
         .overlay(alignment: .top) {
-            Text("اسحب العنصر لتحريكه، واسحب الدائرة في زاويته لتغيير حجمه")
+            Text("اسحب العنصر لتحريكه (حتى إلى صفحة أخرى)، واسحب الدائرة في زاويته للحجم")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 10)
@@ -230,8 +249,16 @@ struct ReportEditorView: View {
         scrollRequest += 1
     }
 
+    private func editTitle(_ id: UUID) -> String {
+        switch vm.element(id)?.kind {
+        case .text: return "تعديل النص"
+        case .table: return "تعديل الجدول"
+        default: return "الصور"
+        }
+    }
+
     private func openSelected() {
-        if case .element(let id) = vm.selection, vm.element(id)?.kind == .evidence {
+        if case .element(let id) = vm.selection, vm.element(id)?.kind != .text {
             sheet = .element(id)
         }
     }
@@ -244,10 +271,14 @@ struct ReportEditorView: View {
         }
     }
 
-    private func export() {
+    private func export(_ format: ExportFormat) {
         KeyboardHelper.dismiss()
-        if let url = vm.exportPDF() {
-            shareItem = IdentifiedURL(url: url)
+        switch format {
+        case .pdf:
+            if let url = vm.exportPDF() { shareItem = ShareItems(urls: [url]) }
+        case .images:
+            let urls = vm.exportImages()
+            if !urls.isEmpty { shareItem = ShareItems(urls: urls) }
         }
     }
 
@@ -258,7 +289,10 @@ struct ReportEditorView: View {
         case .format: FormatSheet(vm: vm).presentationDetents([.medium, .large])
         case .signatures: SignaturesSheet(vm: vm)
         case .fields: FormFieldsSheet(vm: vm)
-        case .preview: PreviewSheet(vm: vm) { DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { export() } }
+        case .preview: PreviewSheet(vm: vm) { format in DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { export(format) } }
+        case .phrases:
+            PhrasesSheet { text in vm.insertPhrase(text) }
+                .presentationDetents([.medium, .large])
         case .ai: AIAssistantSheet(vm: vm)
         case .dictation:
             DictationSheet { text in vm.richText.insertText(text) }

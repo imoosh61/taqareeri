@@ -10,6 +10,8 @@ final class ElementHandleView: UIView, UIGestureRecognizerDelegate {
     let key: String
     var minimumSize = CGSize(width: 40, height: 30)
     var keepsSquare = false
+    /// Elements may be dragged onto the page above or below.
+    var allowsLeavingPage = false
     var isSelectedHandle = false { didSet { updateAppearance() } }
     var tint: UIColor = .systemBlue { didSet { updateAppearance() } }
 
@@ -97,11 +99,15 @@ final class ElementHandleView: UIView, UIGestureRecognizerDelegate {
         switch gesture.state {
         case .began:
             startFrame = frame
+            // Stay above the neighbouring pages while crossing to them.
+            if allowsLeavingPage { superview.superview?.bringSubviewToFront(superview) }
         case .changed:
             let translation = gesture.translation(in: superview)
             var next = startFrame.offsetBy(dx: translation.x, dy: translation.y)
             next.origin.x = min(max(next.minX, pageBounds.minX), pageBounds.maxX - next.width)
-            next.origin.y = min(max(next.minY, pageBounds.minY), pageBounds.maxY - next.height)
+            if !allowsLeavingPage {
+                next.origin.y = min(max(next.minY, pageBounds.minY), pageBounds.maxY - next.height)
+            }
             frame = next
             onLiveChange?(next)
         case .ended, .cancelled:
@@ -476,6 +482,7 @@ final class DocumentCanvasView: UIView, UIScrollViewDelegate, UITextViewDelegate
             handle.frame = item.rect
             handle.minimumSize = item.minimum
             handle.keepsSquare = item.square
+            if case .element = selection { handle.allowsLeavingPage = true } else { handle.allowsLeavingPage = false }
             handle.tint = tint
             handle.isSelectedHandle = vm.selection == selection
             handle.onTap = { [weak vm] in
@@ -491,10 +498,21 @@ final class DocumentCanvasView: UIView, UIScrollViewDelegate, UITextViewDelegate
                 pageView.baseExclusions[key] = rect
                 pageView.applyExclusions()
             }
-            handle.onCommit = { [weak vm] rect in
+            handle.onCommit = { [weak vm, weak self] rect in
                 guard let vm else { return }
+                // Snap handles back to the stored geometry even when nothing changed.
+                defer { DispatchQueue.main.async { self?.apply(force: true) } }
                 switch selection {
-                case .element(let id): vm.setElementRect(id, rect)
+                case .element(let id):
+                    // Dropped over another page: the element moves there.
+                    let pitch = A4.size.height + DocumentCanvasView.gap
+                    let shift = Int((rect.midY / pitch).rounded(.down))
+                    let target = min(max(index + shift, 0), vm.pageCount - 1)
+                    if target != index {
+                        vm.moveElement(id, toPage: target, rect: rect.offsetBy(dx: 0, dy: -CGFloat(target - index) * pitch))
+                    } else {
+                        vm.setElementRect(id, rect)
+                    }
                 case .signatures: vm.setSignatureRect(rect)
                 case .logo: vm.setLogoFrame(rect, onPage: index)
                 }

@@ -3,11 +3,13 @@ import SwiftUI
 /// Final review exactly as the PDF will look, with page deletion and export.
 struct PreviewSheet: View {
     @ObservedObject var vm: ReportEditorViewModel
-    let onExport: () -> Void
+    let onExport: (ExportFormat) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var zoomPage: PageRef?
     @State private var pendingDeletion: PageRef?
     @State private var columns = 2
+    @State private var trashTargeted = false
+    @State private var dropTarget: Int?
 
     var body: some View {
         NavigationStack {
@@ -25,6 +27,22 @@ struct PreviewSheet: View {
                             VStack(spacing: 6) {
                                 A4PageView(page: page, snapshot: vm.snapshot)
                                     .onTapGesture { zoomPage = PageRef(id: page) }
+                                    .overlay {
+                                        if dropTarget == page {
+                                            RoundedRectangle(cornerRadius: 4).stroke(Color.accentColor, lineWidth: 3)
+                                        }
+                                    }
+                                    .draggable(PageDragToken.encode(page)) {
+                                        A4PageView(page: page, snapshot: vm.snapshot).frame(width: 110)
+                                    }
+                                    .dropDestination(for: String.self) { items, _ in
+                                        dropTarget = nil
+                                        guard let source = items.first.flatMap(PageDragToken.decode) else { return false }
+                                        vm.movePage(from: source, to: page)
+                                        return true
+                                    } isTargeted: { targeted in
+                                        if targeted { dropTarget = page } else if dropTarget == page { dropTarget = nil }
+                                    }
                                     .overlay(alignment: .topLeading) {
                                         if vm.snapshot.texts[page].overflowLocation != nil {
                                             Image(systemName: "exclamationmark.triangle.fill")
@@ -53,20 +71,37 @@ struct PreviewSheet: View {
                 }
                 .background(Color(.systemGray5))
 
-                Button {
-                    dismiss()
-                    onExport()
-                } label: {
-                    Label("تصدير PDF ومشاركة", systemImage: "square.and.arrow.up")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 6)
+                VStack(spacing: 10) {
+                    if vm.canDeletePages {
+                        trashZone
+                    }
+                    HStack(spacing: 10) {
+                        Button {
+                            dismiss()
+                            onExport(.pdf)
+                        } label: {
+                            Label("PDF", systemImage: "doc.richtext")
+                                .font(.headline)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 6)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        Button {
+                            dismiss()
+                            onExport(.images)
+                        } label: {
+                            Label("صور JPG", systemImage: "photo")
+                                .font(.headline)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 6)
+                        }
+                        .buttonStyle(.bordered)
+                    }
                 }
-                .buttonStyle(.borderedProminent)
                 .padding()
                 .background(.bar)
             }
-            .navigationTitle("المعاينة")
+            .navigationTitle("المعاينة والتصدير")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -99,6 +134,48 @@ struct PreviewSheet: View {
             }
             .onAppear { vm.rebuildSnapshot() }
         }
+    }
+}
+
+extension PreviewSheet {
+    /// Drop a page here (long-press then drag) to delete it.
+    private var trashZone: some View {
+        HStack(spacing: 8) {
+            Image(systemName: trashTargeted ? "trash.fill" : "trash")
+            Text(trashTargeted ? "أفلت للحذف" : "اضغط مطولاً على صفحة واسحبها هنا لحذفها، أو فوق صفحة أخرى لتغيير ترتيبها")
+                .font(.caption)
+                .multilineTextAlignment(.center)
+        }
+        .foregroundStyle(trashTargeted ? Color.white : Color.red)
+        .frame(maxWidth: .infinity, minHeight: 44)
+        .padding(.horizontal, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(trashTargeted ? Color.red : Color.red.opacity(0.08))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .strokeBorder(Color.red.opacity(0.5), style: StrokeStyle(lineWidth: 1.2, dash: [5, 4]))
+        )
+        .dropDestination(for: String.self) { items, _ in
+            trashTargeted = false
+            guard let page = items.first.flatMap(PageDragToken.decode) else { return false }
+            pendingDeletion = PageRef(id: page)
+            return true
+        } isTargeted: { trashTargeted = $0 }
+        .animation(.easeInOut(duration: 0.15), value: trashTargeted)
+    }
+}
+
+/// Pages are dragged as a short text token (only meaningful inside this screen).
+enum PageDragToken {
+    static let prefix = "taqareeri-page:"
+
+    static func encode(_ page: Int) -> String { prefix + String(page) }
+
+    static func decode(_ token: String) -> Int? {
+        guard token.hasPrefix(prefix) else { return nil }
+        return Int(token.dropFirst(prefix.count))
     }
 }
 

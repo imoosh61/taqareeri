@@ -87,6 +87,9 @@ enum PageRenderer {
         if spec.hasHeader(bodyPage: index) {
             drawHeader(report: report, logo: images.logo, in: spec.headerRect(bodyPage: index), accent: accent)
         }
+        if index == 0, spec.markHeight > 0, let mark = report.markStorage {
+            drawMark(mark, fontName: report.textStyle.fontName, in: spec.markRect)
+        }
         if index == 0 && spec.addresseeHeight > 0 {
             drawAddressee(report: report, in: spec.addresseeRect)
         }
@@ -99,6 +102,10 @@ enum PageRenderer {
             case .evidence:
                 if let block = element.evidence, block.isVisible {
                     EvidenceLayout.draw(block, report: report, images: images, in: element.rect, accent: accent)
+                }
+            case .table:
+                if let table = element.table {
+                    TableRenderer.draw(table, fontName: report.textStyle.fontName, numerals: report.page.numerals, in: element.rect)
                 }
             case .text:
                 if let box = element.text {
@@ -227,6 +234,24 @@ enum PageRenderer {
             verticallyCentered: true,
             shrinkToFit: true
         )
+    }
+
+    // MARK: - Mark («عاجل»)
+
+    static func drawMark(_ mark: TextMark, fontName: String, in rect: CGRect) {
+        let text = mark.text.trimmed
+        guard !text.isEmpty else { return }
+        let color = UIColor(hex: mark.colorHex)
+        let font = BodyStyler.font(name: fontName, size: CGFloat(mark.fontSize), bold: true)
+        let width = min((text as NSString).size(withAttributes: [.font: font]).width + CGFloat(mark.fontSize) * 2, rect.width)
+        let box = CGRect(x: rect.midX - width / 2, y: rect.minY + 2, width: width, height: rect.height - 6)
+        if mark.boxed {
+            let path = UIBezierPath(roundedRect: box, cornerRadius: 4)
+            color.setStroke()
+            path.lineWidth = 1.4
+            path.stroke()
+        }
+        TextDraw.draw([text], in: box, font: font, color: color, alignment: .center, verticallyCentered: true, shrinkToFit: true)
     }
 
     // MARK: - Addressee

@@ -10,10 +10,18 @@ struct HomeView: View {
     @State private var showLibrary = false
     @State private var pendingDelete: Report?
     @State private var showFormPicker = false
+    @State private var searchText = ""
     @AppStorage("home.section") private var section: ReportKind = .text
 
     private var visibleReports: [Report] {
-        store.reports.filter { $0.kind == section }
+        let query = searchText.trimmed
+        return store.reports.filter { report in
+            guard report.kind == section else { return false }
+            guard !query.isEmpty else { return true }
+            let haystack = [report.title, report.header.referenceNumber, report.addressee.recipientTitle,
+                            report.addressee.recipientName] + report.pages.map(\.body.text)
+            return haystack.contains { $0.localizedCaseInsensitiveContains(query) }
+        }
     }
 
     private let columns = [GridItem(.adaptive(minimum: 150, maximum: 220), spacing: 16)]
@@ -32,18 +40,20 @@ struct HomeView: View {
                             title: section == .text ? "تقرير جديد" : "نموذج شواهد جديد",
                             subtitle: section == .text
                                 ? (templates.defaultTemplate.map { "بقالب «\($0.name)»" } ?? "اكتب مباشرة على صفحة A4")
-                                : "قوالب جاهزة للمعلمين مع الصور والتوقيعات",
+                                : "حقول وصور وQR وتوقيعات في صفحة واحدة",
                             accent: theme.accent,
                             secondary: theme.secondary
                         )
                     }
                     .buttonStyle(.plain)
 
-                    if visibleReports.isEmpty {
+                    if visibleReports.isEmpty && !searchText.trimmed.isEmpty {
+                        ContentUnavailableView.search(text: searchText)
+                    } else if visibleReports.isEmpty {
                         ContentUnavailableView(
                             section == .text ? "لا توجد تقارير بعد" : "لا توجد نماذج بعد",
                             systemImage: section == .text ? "doc.text" : "list.bullet.rectangle",
-                            description: Text(section == .text ? "اضغط «تقرير جديد» للبدء." : "اختر قالباً جاهزاً مثل «إنجاز الدروس».")
+                            description: Text(section == .text ? "اضغط «تقرير جديد» للبدء." : "اضغط «نموذج شواهد جديد» للبدء.")
                         )
                         .padding(.top, 30)
                     } else {
@@ -80,6 +90,7 @@ struct HomeView: View {
             }
             .background(Color(.systemGroupedBackground))
             .navigationTitle("تقاريري")
+            .searchable(text: $searchText, prompt: "ابحث بالعنوان أو الرقم أو النص")
             .navigationDestination(for: UUID.self) { id in
                 if let report = store.report(id: id) {
                     ReportEditorView(report: report, store: store)
@@ -155,7 +166,11 @@ struct HomeView: View {
 
     private func createReport() {
         if section == .form {
-            showFormPicker = true
+            if FormTemplate.all.isEmpty {
+                createForm(.blank)
+            } else {
+                showFormPicker = true
+            }
             return
         }
         let report = store.createReport(from: templates.defaultTemplate)
