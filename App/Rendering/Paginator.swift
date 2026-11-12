@@ -80,12 +80,15 @@ final class PaginationResult {
 enum Paginator {
     static let maxPages = 300
 
-    /// - Parameter exclusion: an area on one page (A4 points) that text flows around, e.g. evidence.
+    /// - Parameters:
+    ///   - boxes: evidence boxes (A4 points); their pages always exist and the signatures avoid them.
+    ///   - wrapsText: whether body text flows around the boxes (text reports).
     static func paginate(
         _ text: NSAttributedString,
         spec: PageLayoutSpec,
         hasCover: Bool,
-        exclusion: EvidenceLayout.Placement? = nil,
+        boxes: [EvidenceLayout.Placement] = [],
+        wrapsText: Bool = true,
         minimumPages: Int = 1
     ) -> PaginationResult {
         let storage = NSTextStorage(attributedString: text)
@@ -103,11 +106,13 @@ enum Paginator {
             let rect = spec.bodyRect(bodyPage: index)
             let container = NSTextContainer(size: rect.size)
             container.lineFragmentPadding = 0
-            if let exclusion, exclusion.page == index {
-                let local = exclusion.rect.offsetBy(dx: -rect.minX, dy: -rect.minY)
-                    .intersection(CGRect(origin: .zero, size: rect.size))
-                if !local.isNull, local.width > 0, local.height > 0 {
-                    container.exclusionPaths = [UIBezierPath(rect: local)]
+            if wrapsText {
+                container.exclusionPaths = boxes.filter { $0.page == index }.compactMap { box in
+                    let local = box.rect
+                        .insetBy(dx: -EvidenceLayout.textMargin, dy: -EvidenceLayout.textMargin)
+                        .offsetBy(dx: -rect.minX, dy: -rect.minY)
+                        .intersection(CGRect(origin: .zero, size: rect.size))
+                    return local.isNull || local.width <= 0 || local.height <= 0 ? nil : UIBezierPath(rect: local)
                 }
             }
             layoutManager.addTextContainer(container)
@@ -131,10 +136,9 @@ enum Paginator {
         }
 
         // Make sure the page holding the evidence, and pages the user added, exist even when empty.
-        if let exclusion {
-            while containers.count <= exclusion.page && containers.count < maxPages {
-                addContainer()
-            }
+        let lastBoxPage = boxes.map(\.page).max() ?? 0
+        while containers.count <= lastBoxPage && containers.count < maxPages {
+            addContainer()
         }
         while containers.count < minimumPages && containers.count < maxPages {
             addContainer()
@@ -142,9 +146,14 @@ enum Paginator {
 
         var needsExtraPage = false
         if spec.signatureBlockHeight > 0, let last = containers.last {
-            let used = layoutManager.usedRect(for: last)
-            let available = spec.bodyRect(bodyPage: containers.count - 1).height
-            needsExtraPage = available - used.maxY < spec.signatureBlockHeight + 10
+            let lastIndex = containers.count - 1
+            let body = spec.bodyRect(bodyPage: lastIndex)
+            // Lowest point taken on the last page: its text, or an evidence box.
+            var occupied = layoutManager.usedRect(for: last).maxY
+            for box in boxes where box.page == lastIndex {
+                occupied = max(occupied, box.rect.maxY - body.minY)
+            }
+            needsExtraPage = body.height - occupied < spec.signatureBlockHeight + 9
         }
 
         return PaginationResult(

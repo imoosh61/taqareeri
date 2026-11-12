@@ -139,18 +139,10 @@ final class ReportEditorViewModel: ObservableObject {
             text,
             spec: spec,
             hasCover: report.cover.isEnabled,
-            exclusion: EvidenceLayout.exclusion(report: report, spec: spec),
-            minimumPages: requiredPages(report)
+            boxes: EvidenceLayout.placements(report: report, spec: spec),
+            wrapsText: report.kind == .text,
+            minimumPages: report.minimumPages
         )
-    }
-
-    /// Pages that must exist: added by the user, or holding the evidence block.
-    private static func requiredPages(_ report: Report) -> Int {
-        var pages = report.minimumPages
-        if report.evidence.isVisible {
-            pages = max(pages, report.evidence.pageIndex + 1)
-        }
-        return pages
     }
 
     // MARK: - Pages
@@ -165,12 +157,11 @@ final class ReportEditorViewModel: ObservableObject {
         return min(newIndex, pagination.lastBodyPage)
     }
 
-    /// Adds a page and moves the evidence block onto it.
-    func addEvidencePage() {
+    /// Adds a page at the end with a new, empty evidence box on it. Existing boxes stay where they are.
+    @discardableResult
+    func addEvidencePage() -> UUID {
         let index = addPage()
-        report.evidence.pageIndex = index
-        report.evidence.isEnabled = true
-        repaginate()
+        return addEvidenceBlock(page: index)
     }
 
     /// The last page can be removed only when it is empty (no text, evidence or text boxes on it).
@@ -178,7 +169,7 @@ final class ReportEditorViewModel: ObservableObject {
         let last = pagination.lastBodyPage
         guard last > 0, !pagination.signatureOnExtraPage, report.minimumPages > last else { return false }
         if let range = pagination.glyphRange(forBodyPage: last), range.length > 0 { return false }
-        if report.evidence.isVisible && report.evidence.pageIndex >= last { return false }
+        if report.visibleEvidenceBlocks.contains(where: { $0.page >= last }) { return false }
         if report.textBoxes.contains(where: { $0.page >= last }) { return false }
         return true
     }
@@ -335,56 +326,82 @@ final class ReportEditorViewModel: ObservableObject {
         replaceBody(snapshot, keepUndo: false)
     }
 
-    // MARK: - Evidence
+    // MARK: - Evidence boxes
 
-    func evidencePlacement() -> EvidenceLayout.Placement? {
-        EvidenceLayout.placement(report: report, spec: pagination.spec)
+    func evidencePlacement(of id: UUID) -> EvidenceLayout.Placement? {
+        guard let block = report.evidenceBlocks.first(where: { $0.id == id }) else { return nil }
+        return EvidenceLayout.placement(of: block, report: report, spec: pagination.spec)
     }
 
-    var canAddEvidence: Bool { report.evidence.items.count < EvidenceSettings.maxItems }
+    private func updateBlock(_ id: UUID, _ change: (inout EvidenceBlock) -> Void) {
+        var blocks = report.evidenceBlocks
+        guard let index = blocks.firstIndex(where: { $0.id == id }) else { return }
+        change(&blocks[index])
+        report.evidenceBlocks = blocks
+    }
 
-    func addEvidencePhotos(_ sources: [Data]) async {
+    /// New empty box on the given page (automatic position). Returns its id.
+    @discardableResult
+    func addEvidenceBlock(page: Int) -> UUID {
+        let block = EvidenceBlock(page: max(0, page))
+        report.evidenceBlocks.append(block)
+        return block.id
+    }
+
+    func removeEvidenceBlock(_ id: UUID) {
+        report.evidenceBlocks.removeAll { $0.id == id }
+    }
+
+    func setEvidenceBlockPage(_ id: UUID, _ page: Int) {
+        updateBlock(id) {
+            $0.page = max(0, min(page, pagination.lastBodyPage))
+            $0.rect = nil
+        }
+    }
+
+    func setEvidenceRect(_ id: UUID, _ rect: CGRect?) {
+        updateBlock(id) { $0.rect = rect.map(EvidenceLayout.clamp) }
+    }
+
+    func addEvidencePhotos(_ sources: [Data], to id: UUID) async {
         isProcessingImage = true
         defer { isProcessingImage = false }
         var failed = 0
-        for data in sources where canAddEvidence {
+        for data in sources {
+            guard report.evidenceBlocks.first(where: { $0.id == id })?.canAddItems == true else { break }
             do {
                 let jpeg = try await ImageProcessor.photoJPEG(data)
-                report.evidence.items.append(EvidenceItem(kind: .photo, imageData: jpeg))
+                updateBlock(id) { $0.items.append(EvidenceItem(kind: .photo, imageData: jpeg)) }
             } catch {
                 failed += 1
             }
         }
-        report.evidence.isEnabled = true
         if failed > 0 {
             errorMessage = "تعذر إضافة \(failed) من الصور."
         }
     }
 
-    func addEvidenceQR(text: String, caption: String) {
+    func addEvidenceQR(text: String, caption: String, to id: UUID) {
         let link = text.trimmed
-        guard canAddEvidence, !link.isEmpty else { return }
+        guard !link.isEmpty, report.evidenceBlocks.first(where: { $0.id == id })?.canAddItems == true else { return }
         guard QRMatrix.make(link) != nil else {
             errorMessage = "النص طويل جداً لرمز QR."
             return
         }
-        report.evidence.items.append(EvidenceItem(kind: .qr, qrText: link, caption: caption.trimmed))
-        report.evidence.isEnabled = true
+        updateBlock(id) { $0.items.append(EvidenceItem(kind: .qr, qrText: link, caption: caption.trimmed)) }
     }
 
-    func removeEvidence(_ id: UUID) {
-        report.evidence.items.removeAll { $0.id == id }
+    func removeEvidenceItem(_ itemID: UUID, from id: UUID) {
+        updateBlock(id) { $0.items.removeAll { $0.id == itemID } }
     }
 
-    func moveEvidence(_ id: UUID, by offset: Int) {
-        guard let index = report.evidence.items.firstIndex(where: { $0.id == id }) else { return }
-        let target = index + offset
-        guard report.evidence.items.indices.contains(target) else { return }
-        report.evidence.items.swapAt(index, target)
-    }
-
-    func setEvidenceRect(_ rect: CGRect?) {
-        report.evidence.customRect = rect.map(EvidenceLayout.clamp)
+    func moveEvidenceItem(_ itemID: UUID, in id: UUID, by offset: Int) {
+        updateBlock(id) { block in
+            guard let index = block.items.firstIndex(where: { $0.id == itemID }) else { return }
+            let target = index + offset
+            guard block.items.indices.contains(target) else { return }
+            block.items.swapAt(index, target)
+        }
     }
 
     // MARK: - Text boxes
@@ -629,9 +646,7 @@ private struct LayoutKey: Equatable {
     let employeeCount: Int
     let hasStamp: Bool
     let kind: ReportKind
-    let evidenceVisible: Bool
-    let evidencePage: Int
-    let evidenceRect: CGRect?
+    let evidenceBoxes: [EvidenceKey]
     let minimumPages: Int
     let letterhead: [Double?]
     let letterheadAllPages: Bool
@@ -650,9 +665,7 @@ private struct LayoutKey: Equatable {
         employeeCount = report.footer.employees.count
         hasStamp = report.footer.stampPNG != nil
         kind = report.kind
-        evidenceVisible = report.evidence.isVisible
-        evidencePage = report.evidence.pageIndex
-        evidenceRect = report.evidence.customRect
+        evidenceBoxes = report.visibleEvidenceBlocks.map { EvidenceKey(page: $0.page, rect: $0.rect) }
         minimumPages = report.minimumPages
         let frame = report.frame
         letterhead = [
@@ -662,4 +675,9 @@ private struct LayoutKey: Equatable {
         letterheadAllPages = frame.letterheadAllPages
         letterheadOffsets = [frame.letterheadTopOffset, frame.letterheadBottomOffset]
     }
+}
+
+private struct EvidenceKey: Equatable {
+    let page: Int
+    let rect: CGRect?
 }

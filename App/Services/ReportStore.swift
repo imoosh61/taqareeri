@@ -111,9 +111,7 @@ final class ReportStore: ObservableObject {
             report.form = settings
             report.page.showPageNumbers = false
             report.textStyle.fontSize = 13
-            var evidence = EvidenceSettings()
-            evidence.isEnabled = true
-            report.evidence = evidence
+            report.evidenceBlocks = [EvidenceBlock()]
             report.footer.showSignatureBlock = true
             report.footer.employees = [
                 Employee(label: "معلم/ة المادة"),
@@ -133,10 +131,12 @@ final class ReportStore: ObservableObject {
         copy.updatedAt = Date()
         copy.header.date = Date()
         copy.header.referenceNumber = ""
-        var evidence = copy.evidence
-        evidence.items = []
-        evidence.customRect = nil
-        copy.evidence = evidence
+        copy.evidenceBlocks = copy.evidenceBlocks.map { block in
+            var empty = block
+            empty.id = UUID()
+            empty.items = []
+            return empty
+        }
         save(copy)
         return copy
     }

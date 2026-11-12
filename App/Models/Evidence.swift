@@ -16,7 +16,27 @@ struct EvidenceItem: Identifiable, Codable, Equatable {
     var caption = ""
 }
 
-/// Evidence block ("الشواهد") that can be placed and sized freely on a page.
+/// One evidence box ("الشواهد") on one page: up to four photos / QR codes, placed and sized freely.
+/// A report can hold any number of boxes (e.g. one per page).
+struct EvidenceBlock: Identifiable, Codable, Equatable {
+    static let maxItems = 4
+
+    var id = UUID()
+    var title = "الشواهد"
+    var items: [EvidenceItem] = []
+    var showBorder = true
+    /// Crop photos to fill their cells (otherwise fit whole photo).
+    var fillCells = true
+    /// Body page index (0 = first page).
+    var page = 0
+    /// Position & size in A4 points; nil = automatic.
+    var rect: CGRect?
+
+    var isVisible: Bool { !items.isEmpty }
+    var canAddItems: Bool { items.count < Self.maxItems }
+}
+
+/// Single evidence box as saved by version 1.1 (read only, converted to `EvidenceBlock`).
 struct EvidenceSettings: Codable, Equatable {
     static let maxItems = 4
 

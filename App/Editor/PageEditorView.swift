@@ -230,16 +230,17 @@ final class PageEditorView: UIView, UIScrollViewDelegate {
 
     /// The evidence block's area in text-container coordinates.
     private func evidenceRects(spec: PageLayoutSpec, context: PageRenderContext) -> [CGRect] {
-        guard let exclusion = EvidenceLayout.exclusion(report: context.report, spec: spec) else { return [] }
-        let body = spec.bodyRect(bodyPage: exclusion.page)
-        let local = exclusion.rect.intersection(body)
-        guard !local.isNull, local.height > 0 else { return [] }
-        return [CGRect(
-            x: local.minX - spec.marginHorizontal,
-            y: pageTop(exclusion.page) + local.minY - textView.frame.minY,
-            width: local.width,
-            height: local.height
-        )]
+        EvidenceLayout.exclusions(report: context.report, spec: spec).compactMap { exclusion in
+            let body = spec.bodyRect(bodyPage: exclusion.page)
+            let local = exclusion.rect.intersection(body)
+            guard !local.isNull, local.height > 0 else { return nil }
+            return CGRect(
+                x: local.minX - spec.marginHorizontal,
+                y: pageTop(exclusion.page) + local.minY - textView.frame.minY,
+                width: local.width,
+                height: local.height
+            )
+        }
     }
 
     private func bodyPage(containingY y: CGFloat, spec: PageLayoutSpec, limit: Int) -> Int {

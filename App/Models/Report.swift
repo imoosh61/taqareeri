@@ -439,6 +439,7 @@ struct Report: Identifiable, Codable, Equatable {
     var kindValue: ReportKind?
     var formStorage: FormSettings?
     var evidenceStorage: EvidenceSettings?
+    var evidenceBlocksStorage: [EvidenceBlock]?
     var textBoxesStorage: [TextBox]?
     var minimumPagesValue: Int?
 
@@ -458,10 +459,27 @@ struct Report: Identifiable, Codable, Equatable {
         set { formStorage = newValue }
     }
 
-    var evidence: EvidenceSettings {
-        get { evidenceStorage ?? EvidenceSettings() }
-        set { evidenceStorage = newValue }
+    /// All evidence boxes. Reports from version 1.1 (one box) are converted on read.
+    var evidenceBlocks: [EvidenceBlock] {
+        get {
+            if let blocks = evidenceBlocksStorage { return blocks }
+            guard let legacy = evidenceStorage, legacy.isEnabled, !legacy.items.isEmpty else { return [] }
+            return [EvidenceBlock(
+                title: legacy.title,
+                items: legacy.items,
+                showBorder: legacy.showBorder,
+                fillCells: legacy.fillCells,
+                page: legacy.pageIndex,
+                rect: legacy.customRect
+            )]
+        }
+        set {
+            evidenceBlocksStorage = newValue
+            evidenceStorage = nil
+        }
     }
+
+    var visibleEvidenceBlocks: [EvidenceBlock] { evidenceBlocks.filter(\.isVisible) }
 
     /// Font size of the addressee block (custom, or derived from the body text size).
     var addresseeFontSize: Double {

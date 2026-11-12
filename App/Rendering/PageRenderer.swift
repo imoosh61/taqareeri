@@ -24,7 +24,7 @@ struct RenderImages {
                 signatures[employee.id] = image
             }
         }
-        for item in report.evidence.items {
+        for item in report.evidenceBlocks.flatMap(\.items) {
             switch item.kind {
             case .photo:
                 if let data = item.imageData, let image = UIImage(data: data) {
@@ -43,7 +43,7 @@ struct RenderImages {
         [report.header.logoPNG, report.footer.stampPNG, report.frame.customFramePNG,
          report.frame.letterheadTopPNG, report.frame.letterheadBottomPNG]
             + report.footer.employees.map(\.signaturePNG)
-            + report.evidence.items.map { $0.kind == .photo ? $0.imageData : Data(($0.id.uuidString + $0.qrText).utf8) }
+            + report.evidenceBlocks.flatMap(\.items).map { $0.kind == .photo ? $0.imageData : Data(($0.id.uuidString + $0.qrText).utf8) }
     }
 }
 
@@ -116,8 +116,11 @@ enum PageRenderer {
             FormRenderer.draw(report: report, spec: spec, accent: accent)
         }
 
-        if let evidence = EvidenceLayout.placement(report: report, spec: spec), evidence.page == bodyPage {
-            EvidenceLayout.draw(report: report, images: render.images, in: evidence.rect, accent: accent)
+        for block in report.visibleEvidenceBlocks {
+            let placement = EvidenceLayout.placement(of: block, report: report, spec: spec)
+            if placement.page == bodyPage {
+                EvidenceLayout.draw(block, report: report, images: render.images, in: placement.rect, accent: accent)
+            }
         }
 
         for box in report.textBoxes where min(box.page, pagination.lastBodyPage) == bodyPage {

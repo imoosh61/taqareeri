@@ -4,48 +4,48 @@ import UIKit
 @MainActor
 enum EvidenceLayout {
     struct Placement: Equatable {
+        var blockID: UUID
         var page: Int       // body page index
         var rect: CGRect    // A4 points
     }
 
     static let minimumSize = CGSize(width: 90, height: 70)
-    /// Extra space kept between surrounding text and the block.
+    /// Extra space kept between surrounding text and a box.
     static let textMargin: CGFloat = 8
 
-    /// Final placement (custom or automatic), or nil when there is nothing to show.
-    static func placement(report: Report, spec: PageLayoutSpec) -> Placement? {
-        let evidence = report.evidence
-        guard evidence.isVisible else { return nil }
-        let page = max(evidence.pageIndex, 0)
-        if let custom = evidence.customRect {
-            return Placement(page: page, rect: clamp(custom))
-        }
-        return Placement(page: page, rect: defaultRect(report: report, spec: spec, page: page))
+    /// Final placement (custom or automatic) of every visible box.
+    static func placements(report: Report, spec: PageLayoutSpec) -> [Placement] {
+        report.visibleEvidenceBlocks.map { placement(of: $0, report: report, spec: spec) }
     }
 
+    static func placement(of block: EvidenceBlock, report: Report, spec: PageLayoutSpec) -> Placement {
+        let page = max(block.page, 0)
+        let rect = block.rect.map(clamp) ?? defaultRect(report: report, spec: spec, page: page)
+        return Placement(blockID: block.id, page: page, rect: rect)
+    }
+
+    /// Automatic box: below the fields on a form's first page; otherwise the lower half of the
+    /// writing area, so text can still be written above it. Room is kept for the signatures.
     static func defaultRect(report: Report, spec: PageLayoutSpec, page: Int) -> CGRect {
         let body = spec.bodyRect(bodyPage: page)
         let signatureReserve = report.footer.showSignatureBlock ? spec.signatureBlockHeight + 10 : 0
+        let bottom = body.maxY - signatureReserve
 
-        let isAddedPage = report.minimumPages > 1 && page >= report.minimumPages - 1
-        if report.kind == .form || isAddedPage {
-            // Form's first page: below the fields. A page added for evidence: the whole writing area.
-            let top = report.kind == .form && page == 0
-                ? FormRenderer.layout(report: report, spec: spec).bottom + 22
-                : body.minY + 12
-            let bottom = body.maxY - signatureReserve
-            let height = max(bottom - top, 120)
-            return clamp(CGRect(x: body.minX, y: top, width: body.width, height: height))
+        if report.kind == .form && page == 0 {
+            let top = FormRenderer.layout(report: report, spec: spec).bottom + 22
+            return clamp(CGRect(x: body.minX, y: top, width: body.width, height: max(bottom - top, 120)))
         }
 
-        let height = min(240, body.height * 0.42)
-        return clamp(CGRect(x: body.minX, y: body.maxY - signatureReserve - height, width: body.width, height: height))
+        let height = max(min(300, (bottom - body.minY) * 0.55), 120)
+        return clamp(CGRect(x: body.minX, y: bottom - height, width: body.width, height: height))
     }
 
-    /// Area that body text must avoid (text reports only).
-    static func exclusion(report: Report, spec: PageLayoutSpec) -> Placement? {
-        guard report.kind == .text, let placement = placement(report: report, spec: spec) else { return nil }
-        return Placement(page: placement.page, rect: placement.rect.insetBy(dx: -textMargin, dy: -textMargin))
+    /// Areas that body text must flow around (text reports only).
+    static func exclusions(report: Report, spec: PageLayoutSpec) -> [Placement] {
+        guard report.kind == .text else { return [] }
+        return placements(report: report, spec: spec).map {
+            Placement(blockID: $0.blockID, page: $0.page, rect: $0.rect.insetBy(dx: -textMargin, dy: -textMargin))
+        }
     }
 
     static func clamp(_ rect: CGRect) -> CGRect {
@@ -60,9 +60,8 @@ enum EvidenceLayout {
 
     // MARK: - Drawing
 
-    static func draw(report: Report, images: RenderImages, in rect: CGRect, accent: UIColor) {
+    static func draw(_ evidence: EvidenceBlock, report: Report, images: RenderImages, in rect: CGRect, accent: UIColor) {
         guard let ctx = UIGraphicsGetCurrentContext() else { return }
-        let evidence = report.evidence
         let fontName = report.textStyle.fontName
         let title = evidence.title.trimmed
         let titleFont = BodyStyler.font(name: fontName, size: 13, bold: true)
@@ -94,7 +93,7 @@ enum EvidenceLayout {
             }
         }
 
-        let items = Array(evidence.items.prefix(EvidenceSettings.maxItems))
+        let items = Array(evidence.items.prefix(EvidenceBlock.maxItems))
         let cells = gridCells(count: items.count, in: inner, gap: 8)
         let captionFont = BodyStyler.font(name: fontName, size: 10.5, bold: false)
 
