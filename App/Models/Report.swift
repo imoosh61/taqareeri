@@ -252,6 +252,36 @@ struct FrameSettings: Codable, Equatable {
     var applyToCover = true
     /// User-imported frame artwork, used when `style == .customImage`.
     var customFramePNG: Data?
+
+    // Organisation letterhead images ("ورق الجهة"): a banner at the top of the page and a
+    // contact bar at the bottom. Aspect = height / width, stored so layout needs no decoding.
+    var letterheadTopPNG: Data?
+    var letterheadTopAspect: Double?
+    var letterheadBottomPNG: Data?
+    var letterheadBottomAspect: Double?
+    var letterheadTopScaleValue: Double?
+    var letterheadBottomScaleValue: Double?
+    var letterheadAllPagesValue: Bool?
+
+    static let letterheadScaleRange = 0.3...1.0
+
+    /// Width as a fraction of the page width (1 = edge to edge).
+    var letterheadTopScale: Double {
+        get { letterheadTopScaleValue ?? 1 }
+        set { letterheadTopScaleValue = newValue }
+    }
+
+    var letterheadBottomScale: Double {
+        get { letterheadBottomScaleValue ?? 1 }
+        set { letterheadBottomScaleValue = newValue }
+    }
+
+    var letterheadAllPages: Bool {
+        get { letterheadAllPagesValue ?? true }
+        set { letterheadAllPagesValue = newValue }
+    }
+
+    var hasLetterhead: Bool { letterheadTopPNG != nil || letterheadBottomPNG != nil }
 }
 
 struct CoverSettings: Codable, Equatable {

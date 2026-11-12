@@ -8,6 +8,8 @@ struct FrameGalleryView: View {
     @EnvironmentObject private var theme: ThemeStore
     @State private var category: FrameCategory = .all
     @State private var frameItem: PhotosPickerItem?
+    @State private var topLetterheadItem: PhotosPickerItem?
+    @State private var bottomLetterheadItem: PhotosPickerItem?
     @State private var zoomPage: PageRef?
 
     private var styles: [FrameStyle] {
@@ -57,6 +59,8 @@ struct FrameGalleryView: View {
                     }
                 }
 
+                letterheadSection
+
                 customFrameSection
 
                 VStack(alignment: .leading, spacing: 12) {
@@ -95,6 +99,14 @@ struct FrameGalleryView: View {
         .sheet(item: $zoomPage) { ref in
             PageZoomSheet(vm: vm, initialPage: ref.id)
         }
+        .onChange(of: topLetterheadItem) { _, item in
+            loadLetterhead(item, top: true)
+            topLetterheadItem = nil
+        }
+        .onChange(of: bottomLetterheadItem) { _, item in
+            loadLetterhead(item, top: false)
+            bottomLetterheadItem = nil
+        }
         .onChange(of: frameItem) { _, item in
             guard let item else { return }
             Task {
@@ -130,6 +142,108 @@ struct FrameGalleryView: View {
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    // MARK: - Organisation letterhead ("ورق الجهة")
+
+    private var letterheadSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("ورق الجهة الرسمي").font(.headline)
+                Text("ارفع صورة ترويسة الجهة (أعلى الصفحة) وصورة معلومات الاتصال (أسفل الصفحة)، فتُوضع تلقائياً ويبدأ النص بينهما.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
+            letterheadRow(
+                title: "صورة أعلى الصفحة",
+                icon: "rectangle.tophalf.inset.filled",
+                data: vm.report.frame.letterheadTopPNG,
+                selection: $topLetterheadItem,
+                scale: $vm.report.frame.letterheadTopScale,
+                top: true
+            )
+
+            letterheadRow(
+                title: "صورة أسفل الصفحة",
+                icon: "rectangle.bottomhalf.inset.filled",
+                data: vm.report.frame.letterheadBottomPNG,
+                selection: $bottomLetterheadItem,
+                scale: $vm.report.frame.letterheadBottomScale,
+                top: false
+            )
+
+            if vm.report.frame.hasLetterhead {
+                Toggle("على كل الصفحات", isOn: $vm.report.frame.letterheadAllPages)
+                Text("عند الإيقاف تظهر في الصفحة الأولى فقط. احفظها ضمن قالب من تبويب «الترويسة» لتأتي جاهزة في كل تقرير جديد.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding()
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
+    }
+
+    private func letterheadRow(
+        title: String,
+        icon: String,
+        data: Data?,
+        selection: Binding<PhotosPickerItem?>,
+        scale: Binding<Double>,
+        top: Bool
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(title, systemImage: icon).font(.subheadline.weight(.semibold))
+
+            if let data, let image = UIImage(data: data) {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: .infinity, maxHeight: 70)
+                    .padding(6)
+                    .background(CheckerboardBackground())
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+
+                HStack(spacing: 10) {
+                    Text("العرض").font(.caption).foregroundStyle(.secondary)
+                    Slider(value: scale, in: FrameSettings.letterheadScaleRange, step: 0.05)
+                        .environment(\.layoutDirection, .leftToRight)
+                    Text("\(ArabicFormat.number(Int((scale.wrappedValue * 100).rounded()), vm.report.page.numerals))٪")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .frame(width: 40)
+                }
+            }
+
+            HStack {
+                PhotosPicker(selection: selection, matching: .images) {
+                    Label(data == nil ? "رفع من الصور" : "تغيير", systemImage: "photo.badge.plus")
+                }
+                .buttonStyle(.bordered)
+                if data != nil {
+                    Button(role: .destructive) {
+                        vm.removeLetterhead(top: top)
+                    } label: {
+                        Label("حذف", systemImage: "trash")
+                    }
+                    .buttonStyle(.bordered)
+                }
+                if vm.isProcessingImage {
+                    ProgressView().padding(.horizontal, 6)
+                }
+            }
+        }
+    }
+
+    private func loadLetterhead(_ item: PhotosPickerItem?, top: Bool) {
+        guard let item else { return }
+        Task {
+            if let data = try? await item.loadTransferable(type: Data.self) {
+                await vm.importLetterhead(data, top: top)
+            } else {
+                vm.errorMessage = "تعذر تحميل الصورة المختارة."
+            }
+        }
     }
 
     private var customFrameSection: some View {

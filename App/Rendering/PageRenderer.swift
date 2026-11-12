@@ -5,6 +5,8 @@ struct RenderImages {
     var logo: UIImage?
     var stamp: UIImage?
     var frame: UIImage?
+    var letterheadTop: UIImage?
+    var letterheadBottom: UIImage?
     var signatures: [UUID: UIImage] = [:]
     var evidencePhotos: [UUID: UIImage] = [:]
     var qrCodes: [UUID: QRMatrix] = [:]
@@ -15,6 +17,8 @@ struct RenderImages {
         logo = report.header.logoPNG.flatMap { UIImage(data: $0) }
         stamp = report.footer.stampPNG.flatMap { UIImage(data: $0) }
         frame = report.frame.customFramePNG.flatMap { UIImage(data: $0) }
+        letterheadTop = report.frame.letterheadTopPNG.flatMap { UIImage(data: $0) }
+        letterheadBottom = report.frame.letterheadBottomPNG.flatMap { UIImage(data: $0) }
         for employee in report.footer.employees {
             if let data = employee.signaturePNG, let image = UIImage(data: data) {
                 signatures[employee.id] = image
@@ -36,7 +40,8 @@ struct RenderImages {
 
     /// The image-bearing parts of a report; when unchanged, decoded images can be reused.
     static func sources(of report: Report) -> [Data?] {
-        [report.header.logoPNG, report.footer.stampPNG, report.frame.customFramePNG]
+        [report.header.logoPNG, report.footer.stampPNG, report.frame.customFramePNG,
+         report.frame.letterheadTopPNG, report.frame.letterheadBottomPNG]
             + report.footer.employees.map(\.signaturePNG)
             + report.evidence.items.map { $0.kind == .photo ? $0.imageData : Data(($0.id.uuidString + $0.qrText).utf8) }
     }
@@ -91,8 +96,16 @@ enum PageRenderer {
         let pagination = render.pagination
         let spec = pagination.spec
 
+        // Organisation letterhead images (top banner, bottom contact bar).
+        if let rect = spec.topLetterheadRect(bodyPage: bodyPage), let image = render.images.letterheadTop {
+            image.draw(in: rect)
+        }
+        if let rect = spec.bottomLetterheadRect(bodyPage: bodyPage), let image = render.images.letterheadBottom {
+            image.draw(in: rect)
+        }
+
         if spec.hasHeader(bodyPage: bodyPage) {
-            drawHeader(report: report, logo: render.images.logo, in: spec.headerRect, accent: accent)
+            drawHeader(report: report, logo: render.images.logo, in: spec.headerRect(bodyPage: bodyPage), accent: accent)
         }
 
         if bodyPage == 0 && spec.addresseeHeight > 0 {
@@ -121,7 +134,7 @@ enum PageRenderer {
             let label = ArabicFormat.pageLabel(bodyPage + 1, of: pagination.bodyPageCount, report.page.numerals)
             TextDraw.draw(
                 [label],
-                in: spec.footerRect,
+                in: spec.footerRect(bodyPage: bodyPage),
                 font: BodyStyler.font(name: report.textStyle.fontName, size: 10, bold: false),
                 color: UIColor(white: 0.35, alpha: 1),
                 alignment: .center

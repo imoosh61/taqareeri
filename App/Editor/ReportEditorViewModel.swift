@@ -20,6 +20,8 @@ final class ReportEditorViewModel: ObservableObject {
     @Published var logoRemovalMode: LogoBackgroundMode = .smart
     @Published private(set) var isProcessingImage = false
     @Published var errorMessage: String?
+    /// Informational message (not an error).
+    @Published var notice: String?
 
     let richText = RichTextController()
     private(set) var bodyText: NSAttributedString
@@ -383,6 +385,38 @@ final class ReportEditorViewModel: ObservableObject {
         }
     }
 
+    /// Imports a letterhead image: removes the outer white background, trims it and records its proportions.
+    func importLetterhead(_ data: Data, top: Bool) async {
+        guard let processed = await processImage(data, mode: .smart, maxPixelSize: 2400, trim: true),
+              let image = UIImage(data: processed), image.size.width > 0 else { return }
+        let aspect = Double(image.size.height / image.size.width)
+        if top {
+            report.frame.letterheadTopPNG = processed
+            report.frame.letterheadTopAspect = aspect
+            if report.header.isEnabled {
+                // The organisation's banner already carries its name and logo.
+                report.header.isEnabled = false
+                notice = "تم إخفاء الترويسة النصية لأن صورة الجهة تحتوي اسمها وشعارها. يمكنك إعادتها من تبويب «الترويسة»."
+            }
+        } else {
+            report.frame.letterheadBottomPNG = processed
+            report.frame.letterheadBottomAspect = aspect
+        }
+        if report.frame.style != .none && report.frame.style != .customImage {
+            report.frame.style = .none
+        }
+    }
+
+    func removeLetterhead(top: Bool) {
+        if top {
+            report.frame.letterheadTopPNG = nil
+            report.frame.letterheadTopAspect = nil
+        } else {
+            report.frame.letterheadBottomPNG = nil
+            report.frame.letterheadBottomAspect = nil
+        }
+    }
+
     func removeFrameImage() {
         report.frame.customFramePNG = nil
         if report.frame.style == .customImage { report.frame.style = .double }
@@ -501,6 +535,8 @@ private struct LayoutKey: Equatable {
     let evidenceVisible: Bool
     let evidencePage: Int
     let evidenceRect: CGRect?
+    let letterhead: [Double?]
+    let letterheadAllPages: Bool
 
     init(_ report: Report) {
         textStyle = report.textStyle
@@ -518,5 +554,11 @@ private struct LayoutKey: Equatable {
         evidenceVisible = report.evidence.isVisible
         evidencePage = report.evidence.pageIndex
         evidenceRect = report.evidence.customRect
+        let frame = report.frame
+        letterhead = [
+            frame.letterheadTopPNG == nil ? nil : frame.letterheadTopAspect, frame.letterheadTopScale,
+            frame.letterheadBottomPNG == nil ? nil : frame.letterheadBottomAspect, frame.letterheadBottomScale
+        ]
+        letterheadAllPages = frame.letterheadAllPages
     }
 }

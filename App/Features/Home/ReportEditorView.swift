@@ -102,6 +102,14 @@ struct ReportEditorView: View {
         } message: {
             Text(vm.errorMessage ?? "")
         }
+        .alert(
+            "ملاحظة",
+            isPresented: Binding(get: { vm.notice != nil }, set: { if !$0 { vm.notice = nil } })
+        ) {
+            Button("حسناً", role: .cancel) {}
+        } message: {
+            Text(vm.notice ?? "")
+        }
         .onChange(of: tab) { oldTab, _ in
             KeyboardHelper.dismiss()
             if oldTab == .writing { vm.autoFormatIfEnabled() }

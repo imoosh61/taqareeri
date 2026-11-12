@@ -382,7 +382,7 @@ struct HeaderStripPreview: View {
     let context: PageRenderContext
 
     var body: some View {
-        let visible = context.pagination.spec.headerRect.maxY + 10
+        let visible = context.pagination.spec.headerRect(bodyPage: 0).maxY + 10
         GeometryReader { proxy in
             let width = proxy.size.width
             A4PageView(page: page, context: context)
