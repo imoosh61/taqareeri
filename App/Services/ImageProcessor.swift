@@ -57,8 +57,58 @@ enum ImageProcessor {
         guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
             throw ImageProcessingError.unreadable
         }
-        let output = mode == .keep ? image : try removeBackground(image, floodFromEdges: mode == .smart, trim: trim)
+        // Screenshots often carry black bars on their edges: crop them before anything else.
+        let cropped = trim ? cropDarkBorders(image) : image
+        let output = mode == .keep ? cropped : try removeBackground(cropped, floodFromEdges: mode == .smart, trim: trim)
         return try encodePNG(output)
+    }
+
+    /// Removes rows / columns at the edges that are (almost) entirely black, e.g. screenshot bars.
+    static func cropDarkBorders(_ image: CGImage) -> CGImage {
+        let width = image.width
+        let height = image.height
+        guard width > 8, height > 8 else { return image }
+
+        let bytesPerRow = width * 4
+        var pixels = [UInt8](repeating: 0, count: bytesPerRow * height)
+        let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+        let rendered: Bool = pixels.withUnsafeMutableBytes { raw in
+            guard let context = CGContext(
+                data: raw.baseAddress, width: width, height: height, bitsPerComponent: 8, bytesPerRow: bytesPerRow,
+                space: colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue
+            ) else { return false }
+            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        guard rendered else { return image }
+
+        func isDark(_ x: Int, _ y: Int) -> Bool {
+            let offset = y * bytesPerRow + x * 4
+            return max(pixels[offset], pixels[offset + 1], pixels[offset + 2]) < 55 && pixels[offset + 3] > 200
+        }
+        func darkRow(_ y: Int) -> Bool {
+            var count = 0
+            for x in 0..<width where isDark(x, y) { count += 1 }
+            return Double(count) >= Double(width) * 0.97
+        }
+        func darkColumn(_ x: Int, _ top: Int, _ bottom: Int) -> Bool {
+            var count = 0
+            for y in top..<bottom where isDark(x, y) { count += 1 }
+            return Double(count) >= Double(bottom - top) * 0.97
+        }
+
+        var top = 0
+        while top < height / 3 && darkRow(top) { top += 1 }
+        var bottom = height
+        while bottom > height * 2 / 3 && darkRow(bottom - 1) { bottom -= 1 }
+        guard bottom - top > 4 else { return image }
+        var left = 0
+        while left < width / 3 && darkColumn(left, top, bottom) { left += 1 }
+        var right = width
+        while right > width * 2 / 3 && darkColumn(right - 1, top, bottom) { right -= 1 }
+
+        guard top > 0 || left > 0 || bottom < height || right < width else { return image }
+        return image.cropping(to: CGRect(x: left, y: top, width: right - left, height: bottom - top)) ?? image
     }
 
     /// Downscaled, orientation-corrected JPEG for evidence photos.

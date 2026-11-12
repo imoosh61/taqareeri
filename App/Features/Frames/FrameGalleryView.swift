@@ -175,6 +175,7 @@ struct FrameGalleryView: View {
 
             if vm.report.frame.hasLetterhead {
                 Toggle("على كل الصفحات", isOn: $vm.report.frame.letterheadAllPages)
+                Toggle("إظهار الشعار وبيانات الترويسة تحت الصورة", isOn: $vm.report.header.isEnabled)
                 Text("عند الإيقاف تظهر في الصفحة الأولى فقط. احفظها ضمن قالب من تبويب «الترويسة» لتأتي جاهزة في كل تقرير جديد.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)

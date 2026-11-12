@@ -391,13 +391,9 @@ final class ReportEditorViewModel: ObservableObject {
               let image = UIImage(data: processed), image.size.width > 0 else { return }
         let aspect = Double(image.size.height / image.size.width)
         if top {
+            // The app's own letterhead (logo, admin data, date) stays as it is, below the banner.
             report.frame.letterheadTopPNG = processed
             report.frame.letterheadTopAspect = aspect
-            if report.header.isEnabled {
-                // The organisation's banner already carries its name and logo.
-                report.header.isEnabled = false
-                notice = "تم إخفاء الترويسة النصية لأن صورة الجهة تحتوي اسمها وشعارها. يمكنك إعادتها من تبويب «الترويسة»."
-            }
         } else {
             report.frame.letterheadBottomPNG = processed
             report.frame.letterheadBottomAspect = aspect
