@@ -174,6 +174,82 @@ final class ReportEditorViewModel: ObservableObject {
         return true
     }
 
+    // MARK: - Deleting any page
+
+    @Published private(set) var canUndoPageDeletion = false
+    private var pageDeletionUndo: (report: Report, text: NSAttributedString)?
+
+    enum PageDeletion {
+        case allowed
+        case cover
+        case formFirstPage
+        case onlyPage
+        case signaturesOnly
+    }
+
+    func deletion(forPhysicalPage page: Int) -> PageDeletion {
+        switch pagination.kind(ofPage: page) {
+        case .cover:
+            return .cover
+        case .body(let index):
+            if index >= pagination.containers.count { return .signaturesOnly }
+            if report.kind == .form && index == 0 { return .formFirstPage }
+            if pagination.containers.count <= 1 { return .onlyPage }
+            return .allowed
+        }
+    }
+
+    /// Deletes one page: its text, evidence boxes and text boxes. Later pages move up.
+    func deletePage(physical page: Int) {
+        guard deletion(forPhysicalPage: page) == .allowed, case .body(let index) = pagination.kind(ofPage: page) else { return }
+        pageDeletionUndo = (report, bodyText)
+
+        // 1. Text on that page (plus the page break that leads into it, if it is the last page).
+        let text = NSMutableAttributedString(attributedString: bodyText)
+        if let glyphs = pagination.glyphRange(forBodyPage: index), glyphs.length > 0 {
+            var characters = pagination.layoutManager.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)
+            characters = NSIntersectionRange(characters, NSRange(location: 0, length: text.length))
+            let isLast = index == pagination.containers.count - 1
+            if isLast, characters.location > 0,
+               (text.string as NSString).character(at: characters.location - 1) == BodyDocument.pageBreakUnit {
+                characters = NSRange(location: characters.location - 1, length: characters.length + 1)
+            }
+            text.deleteCharacters(in: characters)
+        }
+
+        // 2. Boxes on that page go; boxes on later pages move up one page.
+        var report = self.report
+        report.evidenceBlocks = report.evidenceBlocks.compactMap { block in
+            guard block.page != index else { return nil }
+            var moved = block
+            if moved.page > index { moved.page -= 1 }
+            return moved
+        }
+        report.textBoxes = report.textBoxes.compactMap { box in
+            guard box.page != index else { return nil }
+            var moved = box
+            if moved.page > index { moved.page -= 1 }
+            return moved
+        }
+        if report.minimumPages > index {
+            report.minimumPages = max(1, report.minimumPages - 1)
+        }
+        self.report = report
+
+        replaceBody(text, keepUndo: false)
+        repaginate()
+        canUndoPageDeletion = true
+    }
+
+    func undoPageDeletion() {
+        guard let saved = pageDeletionUndo else { return }
+        pageDeletionUndo = nil
+        canUndoPageDeletion = false
+        report = saved.report
+        replaceBody(saved.text, keepUndo: false)
+        repaginate()
+    }
+
     func removeLastPage() {
         guard canRemoveLastPage else { return }
         report.minimumPages = pagination.lastBodyPage

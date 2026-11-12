@@ -6,6 +6,8 @@ struct PreviewTabView: View {
     let onExport: () -> Void
     @State private var zoomPage: PageRef?
     @State private var columns = 1
+    @State private var pendingDeletion: PageRef?
+    @State private var info: String?
 
     var body: some View {
         let total = vm.pagination.totalPages
@@ -48,11 +50,29 @@ struct PreviewTabView: View {
                     ForEach(0..<total, id: \.self) { page in
                         VStack(spacing: 6) {
                             A4PageView(page: page, context: vm.renderContext)
-                            Text(caption(for: page))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .onTapGesture { zoomPage = PageRef(id: page) }
+                                .contextMenu {
+                                    Button(role: .destructive) {
+                                        requestDeletion(page)
+                                    } label: {
+                                        Label("حذف هذه الصفحة", systemImage: "trash")
+                                    }
+                                }
+                            HStack(spacing: 10) {
+                                Text(caption(for: page))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                Button {
+                                    requestDeletion(page)
+                                } label: {
+                                    Image(systemName: "trash")
+                                        .font(.caption)
+                                        .foregroundStyle(.red)
+                                }
+                                .buttonStyle(.borderless)
+                                .accessibilityLabel("حذف هذه الصفحة")
+                            }
                         }
-                        .onTapGesture { zoomPage = PageRef(id: page) }
                     }
                 }
                 .padding(.horizontal, columns == 1 ? 28 : 16)
@@ -70,8 +90,52 @@ struct PreviewTabView: View {
             .padding()
             .background(.bar)
         }
+        .safeAreaInset(edge: .top) {
+            if vm.canUndoPageDeletion {
+                Button {
+                    vm.undoPageDeletion()
+                } label: {
+                    Label("تراجع عن حذف الصفحة", systemImage: "arrow.uturn.backward")
+                        .font(.subheadline.weight(.semibold))
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.orange)
+                .padding(.top, 4)
+            }
+        }
+        .confirmationDialog(
+            "حذف الصفحة \(pendingDeletion.map { ArabicFormat.number($0.id + 1, vm.report.page.numerals) } ?? "")؟",
+            isPresented: Binding(get: { pendingDeletion != nil }, set: { if !$0 { pendingDeletion = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button("حذف الصفحة", role: .destructive) {
+                if let page = pendingDeletion { vm.deletePage(physical: page.id) }
+                pendingDeletion = nil
+            }
+            Button("إلغاء", role: .cancel) { pendingDeletion = nil }
+        } message: {
+            Text("سيُحذف ما في الصفحة من نص وشواهد ومربعات نص، وتتقدّم الصفحات التالية.")
+        }
+        .alert(info ?? "", isPresented: Binding(get: { info != nil }, set: { if !$0 { info = nil } })) {
+            Button("حسناً", role: .cancel) {}
+        }
         .sheet(item: $zoomPage) { ref in
             PageZoomSheet(vm: vm, initialPage: ref.id)
+        }
+    }
+
+    private func requestDeletion(_ page: Int) {
+        switch vm.deletion(forPhysicalPage: page) {
+        case .allowed:
+            pendingDeletion = PageRef(id: page)
+        case .cover:
+            info = "لإزالة صفحة الغلاف أوقف «صفحة غلاف رسمية» من تبويب «الترويسة»."
+        case .formFirstPage:
+            info = "الصفحة الأولى تحتوي حقول النموذج ولا يمكن حذفها."
+        case .onlyPage:
+            info = "لا يمكن حذف الصفحة الوحيدة في التقرير."
+        case .signaturesOnly:
+            info = "هذه الصفحة للتوقيعات فقط وتُنشأ تلقائياً. تختفي إذا قلّ المحتوى في الصفحة السابقة، أو إذا أوقفت التوقيعات أو صغّرت الشواهد."
         }
     }
 
