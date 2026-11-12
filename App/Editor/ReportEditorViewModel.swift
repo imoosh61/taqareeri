@@ -139,8 +139,54 @@ final class ReportEditorViewModel: ObservableObject {
             text,
             spec: spec,
             hasCover: report.cover.isEnabled,
-            exclusion: EvidenceLayout.exclusion(report: report, spec: spec)
+            exclusion: EvidenceLayout.exclusion(report: report, spec: spec),
+            minimumPages: requiredPages(report)
         )
+    }
+
+    /// Pages that must exist: added by the user, or holding the evidence block.
+    private static func requiredPages(_ report: Report) -> Int {
+        var pages = report.minimumPages
+        if report.evidence.isVisible {
+            pages = max(pages, report.evidence.pageIndex + 1)
+        }
+        return pages
+    }
+
+    // MARK: - Pages
+
+    /// Adds an empty page at the end that stays even without text. Returns its index.
+    @discardableResult
+    func addPage() -> Int {
+        // A signatures-only overflow page has no text container yet; it becomes the new page.
+        let newIndex = pagination.containers.count
+        report.minimumPages = newIndex + 1
+        repaginate()
+        return min(newIndex, pagination.lastBodyPage)
+    }
+
+    /// Adds a page and moves the evidence block onto it.
+    func addEvidencePage() {
+        let index = addPage()
+        report.evidence.pageIndex = index
+        report.evidence.isEnabled = true
+        repaginate()
+    }
+
+    /// The last page can be removed only when it is empty (no text, evidence or text boxes on it).
+    var canRemoveLastPage: Bool {
+        let last = pagination.lastBodyPage
+        guard last > 0, !pagination.signatureOnExtraPage, report.minimumPages > last else { return false }
+        if let range = pagination.glyphRange(forBodyPage: last), range.length > 0 { return false }
+        if report.evidence.isVisible && report.evidence.pageIndex >= last { return false }
+        if report.textBoxes.contains(where: { $0.page >= last }) { return false }
+        return true
+    }
+
+    func removeLastPage() {
+        guard canRemoveLastPage else { return }
+        report.minimumPages = pagination.lastBodyPage
+        repaginate()
     }
 
     // MARK: - Persistence
@@ -344,7 +390,7 @@ final class ReportEditorViewModel: ObservableObject {
     // MARK: - Text boxes
 
     func addTextBox() {
-        let page = report.kind == .form ? 0 : min(cursorBodyPage, pagination.lastBodyPage)
+        let page = min(cursorBodyPage, pagination.lastBodyPage)
         let body = pagination.spec.bodyRect(bodyPage: page)
         let rect = CGRect(x: body.midX - 110, y: body.midY - 30, width: 220, height: 60)
         report.textBoxes.append(TextBox(text: "نص جديد", page: page, rect: rect))
@@ -586,6 +632,7 @@ private struct LayoutKey: Equatable {
     let evidenceVisible: Bool
     let evidencePage: Int
     let evidenceRect: CGRect?
+    let minimumPages: Int
     let letterhead: [Double?]
     let letterheadAllPages: Bool
     let letterheadOffsets: [Double]
@@ -606,6 +653,7 @@ private struct LayoutKey: Equatable {
         evidenceVisible = report.evidence.isVisible
         evidencePage = report.evidence.pageIndex
         evidenceRect = report.evidence.customRect
+        minimumPages = report.minimumPages
         let frame = report.frame
         letterhead = [
             frame.letterheadTopPNG == nil ? nil : frame.letterheadTopAspect, frame.letterheadTopScale,

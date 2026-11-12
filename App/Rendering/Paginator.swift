@@ -85,7 +85,8 @@ enum Paginator {
         _ text: NSAttributedString,
         spec: PageLayoutSpec,
         hasCover: Bool,
-        exclusion: EvidenceLayout.Placement? = nil
+        exclusion: EvidenceLayout.Placement? = nil,
+        minimumPages: Int = 1
     ) -> PaginationResult {
         let storage = NSTextStorage(attributedString: text)
         let layoutManager = NSLayoutManager()
@@ -129,11 +130,14 @@ enum Paginator {
             }
         }
 
-        // Make sure the page holding the evidence exists even when the text is shorter.
+        // Make sure the page holding the evidence, and pages the user added, exist even when empty.
         if let exclusion {
             while containers.count <= exclusion.page && containers.count < maxPages {
                 addContainer()
             }
+        }
+        while containers.count < minimumPages && containers.count < maxPages {
+            addContainer()
         }
 
         var needsExtraPage = false

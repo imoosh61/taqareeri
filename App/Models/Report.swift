@@ -440,6 +440,13 @@ struct Report: Identifiable, Codable, Equatable {
     var formStorage: FormSettings?
     var evidenceStorage: EvidenceSettings?
     var textBoxesStorage: [TextBox]?
+    var minimumPagesValue: Int?
+
+    /// Body pages that always exist, even when empty (pages added by the user).
+    var minimumPages: Int {
+        get { max(minimumPagesValue ?? 1, 1) }
+        set { minimumPagesValue = newValue <= 1 ? nil : newValue }
+    }
 
     var kind: ReportKind {
         get { kindValue ?? .text }

@@ -201,6 +201,7 @@ struct FormattingToolbar: View {
                 }
                 divider
                 tool("doc.badge.plus", "فاصل صفحة") { vm.richText.insertPageBreak() }
+                tool("plus.rectangle.portrait", "إضافة صفحة فارغة في النهاية") { vm.addPage() }
                 tool("arrow.up.arrow.down", "ترتيب الأقسام", action: onSections)
                 tool("mic.fill", "إملاء صوتي", action: onDictation)
                 tool("keyboard.chevron.compact.down", "إخفاء لوحة المفاتيح") { KeyboardHelper.dismiss() }

@@ -86,7 +86,7 @@ struct TextBoxesView: View {
 
             ColorPicker("لون النص", selection: colorBinding(box.id), supportsOpacity: false)
 
-            if vm.report.kind == .text {
+            if vm.pagination.bodyPageCount > 1 {
                 Stepper(value: pageBinding(box.id), in: 0...max(vm.pagination.lastBodyPage, 0)) {
                     HStack {
                         Text("في الصفحة")

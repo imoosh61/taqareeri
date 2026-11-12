@@ -14,6 +14,22 @@ struct PreviewTabView: View {
                 Label("\(ArabicFormat.number(total, vm.report.page.numerals)) صفحة", systemImage: "doc.on.doc")
                     .font(.subheadline.weight(.semibold))
                 Spacer()
+                Menu {
+                    Button {
+                        vm.addPage()
+                    } label: {
+                        Label("إضافة صفحة فارغة", systemImage: "plus.rectangle.portrait")
+                    }
+                    Button(role: .destructive) {
+                        vm.removeLastPage()
+                    } label: {
+                        Label("حذف آخر صفحة فارغة", systemImage: "minus.rectangle")
+                    }
+                    .disabled(!vm.canRemoveLastPage)
+                } label: {
+                    Label("الصفحات", systemImage: "plus.rectangle.on.rectangle")
+                        .font(.subheadline.weight(.semibold))
+                }
                 Picker("العرض", selection: $columns) {
                     Image(systemName: "rectangle.portrait").tag(1)
                     Image(systemName: "square.grid.2x2").tag(2)

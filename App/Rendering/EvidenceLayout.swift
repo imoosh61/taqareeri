@@ -16,7 +16,7 @@ enum EvidenceLayout {
     static func placement(report: Report, spec: PageLayoutSpec) -> Placement? {
         let evidence = report.evidence
         guard evidence.isVisible else { return nil }
-        let page = report.kind == .form ? 0 : max(evidence.pageIndex, 0)
+        let page = max(evidence.pageIndex, 0)
         if let custom = evidence.customRect {
             return Placement(page: page, rect: clamp(custom))
         }
@@ -27,8 +27,12 @@ enum EvidenceLayout {
         let body = spec.bodyRect(bodyPage: page)
         let signatureReserve = report.footer.showSignatureBlock ? spec.signatureBlockHeight + 10 : 0
 
-        if report.kind == .form {
-            let top = FormRenderer.layout(report: report, spec: spec).bottom + 22
+        let isAddedPage = report.minimumPages > 1 && page >= report.minimumPages - 1
+        if report.kind == .form || isAddedPage {
+            // Form's first page: below the fields. A page added for evidence: the whole writing area.
+            let top = report.kind == .form && page == 0
+                ? FormRenderer.layout(report: report, spec: spec).bottom + 22
+                : body.minY + 12
             let bottom = body.maxY - signatureReserve
             let height = max(bottom - top, 120)
             return clamp(CGRect(x: body.minX, y: top, width: body.width, height: height))

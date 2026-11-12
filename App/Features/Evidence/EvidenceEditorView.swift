@@ -13,7 +13,7 @@ struct EvidenceEditorView: View {
     @State private var zoomPage: PageRef?
 
     private var evidencePage: Int {
-        vm.evidencePlacement()?.page ?? (vm.report.kind == .form ? 0 : vm.report.evidence.pageIndex)
+        vm.evidencePlacement()?.page ?? vm.report.evidence.pageIndex
     }
 
     private var physicalPage: Int {
@@ -140,8 +140,13 @@ struct EvidenceEditorView: View {
 
     private var placementSection: some View {
         Section {
-            if vm.report.kind == .text {
-                Stepper(value: pageBinding, in: 0...max(vm.pagination.bodyPageCount, 1)) {
+            Button {
+                vm.addEvidencePage()
+            } label: {
+                Label("إضافة صفحة جديدة للشواهد", systemImage: "plus.rectangle.portrait")
+            }
+            if vm.pagination.bodyPageCount > 1 {
+                Stepper(value: pageBinding, in: 0...max(vm.pagination.lastBodyPage, 0)) {
                     HStack {
                         Text("في الصفحة")
                         Spacer()
