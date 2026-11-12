@@ -28,6 +28,8 @@ struct PageLayoutSpec {
     let topLetterheadSize: CGSize
     let bottomLetterheadSize: CGSize
     let letterheadOnAllPages: Bool
+    let topLetterheadOffset: CGFloat
+    let bottomLetterheadOffset: CGFloat
     static let letterheadGap: CGFloat = 10
 
     init(report: Report) {
@@ -56,6 +58,8 @@ struct PageLayoutSpec {
         topLetterheadSize = size(frame.letterheadTopPNG, frame.letterheadTopAspect, frame.letterheadTopScale)
         bottomLetterheadSize = size(frame.letterheadBottomPNG, frame.letterheadBottomAspect, frame.letterheadBottomScale)
         letterheadOnAllPages = frame.letterheadAllPages
+        topLetterheadOffset = CGFloat(frame.letterheadTopOffset)
+        bottomLetterheadOffset = CGFloat(frame.letterheadBottomOffset)
     }
 
     // MARK: - Letterhead images
@@ -67,14 +71,15 @@ struct PageLayoutSpec {
     /// Top banner, centered and touching the top edge.
     func topLetterheadRect(bodyPage: Int) -> CGRect? {
         guard showsLetterhead(topLetterheadSize, bodyPage: bodyPage) else { return nil }
-        return CGRect(x: (pageSize.width - topLetterheadSize.width) / 2, y: 0,
+        return CGRect(x: (pageSize.width - topLetterheadSize.width) / 2, y: topLetterheadOffset,
                       width: topLetterheadSize.width, height: topLetterheadSize.height)
     }
 
     /// Bottom bar, centered and touching the bottom edge.
     func bottomLetterheadRect(bodyPage: Int) -> CGRect? {
         guard showsLetterhead(bottomLetterheadSize, bodyPage: bodyPage) else { return nil }
-        return CGRect(x: (pageSize.width - bottomLetterheadSize.width) / 2, y: pageSize.height - bottomLetterheadSize.height,
+        return CGRect(x: (pageSize.width - bottomLetterheadSize.width) / 2,
+                      y: pageSize.height - bottomLetterheadSize.height + bottomLetterheadOffset,
                       width: bottomLetterheadSize.width, height: bottomLetterheadSize.height)
     }
 
@@ -87,7 +92,7 @@ struct PageLayoutSpec {
     /// Bottom margin of a page, raised above the contact bar when there is one.
     func effectiveMarginBottom(bodyPage: Int) -> CGFloat {
         guard let bar = bottomLetterheadRect(bodyPage: bodyPage) else { return marginBottom }
-        return max(marginBottom, bar.height + Self.letterheadGap)
+        return max(marginBottom, pageSize.height - bar.minY + Self.letterheadGap)
     }
 
     func headerTop(bodyPage: Int) -> CGFloat {

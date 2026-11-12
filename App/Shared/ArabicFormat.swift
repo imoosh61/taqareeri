@@ -39,10 +39,12 @@ enum ArabicFormat {
     /// Lines for the left (documentation & time) block of the header.
     static func headerDateLines(_ header: HeaderInfo, numerals: NumeralStyle) -> [String] {
         var lines: [String] = []
-        if header.showDayName {
+        if header.showDate && header.showDayName {
             lines.append("اليوم: " + dayName(header.date))
         }
         switch header.dateMode {
+        case _ where !header.showDate:
+            break
         case .hijri:
             lines.append("التاريخ: " + hijri(header.date, numerals))
         case .gregorian:
@@ -61,6 +63,7 @@ enum ArabicFormat {
     }
 
     static func coverDateLines(_ header: HeaderInfo, numerals: NumeralStyle) -> [String] {
+        guard header.showDate else { return [] }
         switch header.dateMode {
         case .hijri: return [hijri(header.date, numerals)]
         case .gregorian: return [gregorian(header.date, numerals)]

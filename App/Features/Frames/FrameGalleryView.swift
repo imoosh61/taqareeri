@@ -161,6 +161,8 @@ struct FrameGalleryView: View {
                 data: vm.report.frame.letterheadTopPNG,
                 selection: $topLetterheadItem,
                 scale: $vm.report.frame.letterheadTopScale,
+                offset: $vm.report.frame.letterheadTopOffset,
+                offsetRange: FrameSettings.letterheadTopOffsetRange,
                 top: true
             )
 
@@ -170,6 +172,8 @@ struct FrameGalleryView: View {
                 data: vm.report.frame.letterheadBottomPNG,
                 selection: $bottomLetterheadItem,
                 scale: $vm.report.frame.letterheadBottomScale,
+                offset: $vm.report.frame.letterheadBottomOffset,
+                offsetRange: FrameSettings.letterheadBottomOffsetRange,
                 top: false
             )
 
@@ -191,6 +195,8 @@ struct FrameGalleryView: View {
         data: Data?,
         selection: Binding<PhotosPickerItem?>,
         scale: Binding<Double>,
+        offset: Binding<Double>,
+        offsetRange: ClosedRange<Double>,
         top: Bool
     ) -> some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -214,6 +220,23 @@ struct FrameGalleryView: View {
                         .foregroundStyle(.secondary)
                         .frame(width: 40)
                 }
+
+                HStack(spacing: 8) {
+                    Text("الموضع").font(.caption).foregroundStyle(.secondary)
+                    nudge("chevron.up") { offset.wrappedValue = max(offset.wrappedValue - 2, offsetRange.lowerBound) }
+                    Slider(value: offset, in: offsetRange, step: 1)
+                    nudge("chevron.down") { offset.wrappedValue = min(offset.wrappedValue + 2, offsetRange.upperBound) }
+                    if offset.wrappedValue != 0 {
+                        Button {
+                            offset.wrappedValue = 0
+                        } label: {
+                            Image(systemName: "arrow.counterclockwise")
+                        }
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel("الموضع الأصلي")
+                    }
+                }
+                .environment(\.layoutDirection, .leftToRight)
             }
 
             HStack {
@@ -234,6 +257,14 @@ struct FrameGalleryView: View {
                 }
             }
         }
+    }
+
+    private func nudge(_ icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon).frame(width: 26, height: 26)
+        }
+        .buttonStyle(.bordered)
+        .buttonRepeatBehavior(.enabled)
     }
 
     private func loadLetterhead(_ item: PhotosPickerItem?, top: Bool) {

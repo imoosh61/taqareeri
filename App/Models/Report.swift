@@ -91,6 +91,13 @@ struct HeaderInfo: Codable, Equatable {
     var date = Date()
     var dateMode: DateMode = .both
     var showDayName = true
+    var showDateValue: Bool?
+
+    /// Hijri / Gregorian date lines in the letterhead and on the cover.
+    var showDate: Bool {
+        get { showDateValue ?? true }
+        set { showDateValue = newValue }
+    }
     var referenceNumber = ""
     var attachments = ""
     // Optional so older saved reports (without these keys) still decode.
@@ -273,6 +280,22 @@ struct FrameSettings: Codable, Equatable {
     var letterheadTopScaleValue: Double?
     var letterheadBottomScaleValue: Double?
     var letterheadAllPagesValue: Bool?
+    var letterheadTopOffsetValue: Double?
+    var letterheadBottomOffsetValue: Double?
+
+    /// Vertical shift in A4 points (+ = down). The top banner can move down, the bottom bar up.
+    static let letterheadTopOffsetRange = -40.0...160.0
+    static let letterheadBottomOffsetRange = -160.0...40.0
+
+    var letterheadTopOffset: Double {
+        get { letterheadTopOffsetValue ?? 0 }
+        set { letterheadTopOffsetValue = newValue == 0 ? nil : newValue }
+    }
+
+    var letterheadBottomOffset: Double {
+        get { letterheadBottomOffsetValue ?? 0 }
+        set { letterheadBottomOffsetValue = newValue == 0 ? nil : newValue }
+    }
 
     static let letterheadScaleRange = 0.3...1.0
 
@@ -416,6 +439,7 @@ struct Report: Identifiable, Codable, Equatable {
     var kindValue: ReportKind?
     var formStorage: FormSettings?
     var evidenceStorage: EvidenceSettings?
+    var textBoxesStorage: [TextBox]?
 
     var kind: ReportKind {
         get { kindValue ?? .text }

@@ -1,7 +1,7 @@
 import SwiftUI
 
 enum EditorTab: String, CaseIterable, Identifiable {
-    case header, frame, writing, fields, evidence, signature, preview
+    case header, frame, writing, fields, evidence, textBoxes, signature, preview
     var id: String { rawValue }
     var title: String {
         switch self {
@@ -10,6 +10,7 @@ enum EditorTab: String, CaseIterable, Identifiable {
         case .writing: return "الكتابة"
         case .fields: return "الحقول"
         case .evidence: return "الشواهد"
+        case .textBoxes: return "مربعات نص"
         case .signature: return "التوقيع"
         case .preview: return "المعاينة"
         }
@@ -22,6 +23,7 @@ enum EditorTab: String, CaseIterable, Identifiable {
         case .writing: return "text.alignright"
         case .fields: return "list.bullet.rectangle"
         case .evidence: return "photo.on.rectangle"
+        case .textBoxes: return "character.textbox"
         case .signature: return "signature"
         case .preview: return "eye"
         }
@@ -29,8 +31,8 @@ enum EditorTab: String, CaseIterable, Identifiable {
 
     static func tabs(for kind: ReportKind) -> [EditorTab] {
         switch kind {
-        case .text: return [.header, .frame, .writing, .evidence, .signature, .preview]
-        case .form: return [.header, .frame, .fields, .evidence, .signature, .preview]
+        case .text: return [.header, .frame, .writing, .evidence, .textBoxes, .signature, .preview]
+        case .form: return [.header, .frame, .fields, .evidence, .textBoxes, .signature, .preview]
         }
     }
 }
@@ -64,6 +66,7 @@ struct ReportEditorView: View {
                 case .writing: WritingView(vm: vm)
                 case .fields: FormFieldsView(vm: vm)
                 case .evidence: EvidenceEditorView(vm: vm)
+                case .textBoxes: TextBoxesView(vm: vm)
                 case .signature: SignatureStampView(vm: vm)
                 case .preview: PreviewTabView(vm: vm, onExport: export)
                 }

@@ -341,6 +341,35 @@ final class ReportEditorViewModel: ObservableObject {
         report.evidence.customRect = rect.map(EvidenceLayout.clamp)
     }
 
+    // MARK: - Text boxes
+
+    func addTextBox() {
+        let page = report.kind == .form ? 0 : min(cursorBodyPage, pagination.lastBodyPage)
+        let body = pagination.spec.bodyRect(bodyPage: page)
+        let rect = CGRect(x: body.midX - 110, y: body.midY - 30, width: 220, height: 60)
+        report.textBoxes.append(TextBox(text: "نص جديد", page: page, rect: rect))
+    }
+
+    func removeTextBox(_ id: UUID) {
+        report.textBoxes.removeAll { $0.id == id }
+    }
+
+    func setTextBoxRect(_ id: UUID, _ rect: CGRect) {
+        guard let index = report.textBoxes.firstIndex(where: { $0.id == id }) else { return }
+        let page = CGRect(origin: .zero, size: A4.size).insetBy(dx: 4, dy: 4)
+        var clamped = rect
+        clamped.size.width = min(max(clamped.width, TextBox.minimumSize.width), page.width)
+        clamped.size.height = min(max(clamped.height, TextBox.minimumSize.height), page.height)
+        clamped.origin.x = min(max(clamped.minX, page.minX), page.maxX - clamped.width)
+        clamped.origin.y = min(max(clamped.minY, page.minY), page.maxY - clamped.height)
+        report.textBoxes[index].rect = clamped
+    }
+
+    func setTextBoxPage(_ id: UUID, _ page: Int) {
+        guard let index = report.textBoxes.firstIndex(where: { $0.id == id }) else { return }
+        report.textBoxes[index].page = max(0, min(page, pagination.lastBodyPage))
+    }
+
     // MARK: - Form fields
 
     func addFormField() {
@@ -559,6 +588,7 @@ private struct LayoutKey: Equatable {
     let evidenceRect: CGRect?
     let letterhead: [Double?]
     let letterheadAllPages: Bool
+    let letterheadOffsets: [Double]
 
     init(_ report: Report) {
         textStyle = report.textStyle
@@ -582,5 +612,6 @@ private struct LayoutKey: Equatable {
             frame.letterheadBottomPNG == nil ? nil : frame.letterheadBottomAspect, frame.letterheadBottomScale
         ]
         letterheadAllPages = frame.letterheadAllPages
+        letterheadOffsets = [frame.letterheadTopOffset, frame.letterheadBottomOffset]
     }
 }

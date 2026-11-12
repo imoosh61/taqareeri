@@ -120,6 +120,10 @@ enum PageRenderer {
             EvidenceLayout.draw(report: report, images: render.images, in: evidence.rect, accent: accent)
         }
 
+        for box in report.textBoxes where min(box.page, pagination.lastBodyPage) == bodyPage {
+            drawTextBox(box, fontName: report.textStyle.fontName)
+        }
+
         let bodyRect = spec.bodyRect(bodyPage: bodyPage)
         if includeBody, let range = pagination.glyphRange(forBodyPage: bodyPage), range.length > 0 {
             pagination.layoutManager.drawBackground(forGlyphRange: range, at: bodyRect.origin)
@@ -222,6 +226,27 @@ enum PageRenderer {
         thin.addLine(to: CGPoint(x: rect.maxX, y: lineY + 3.5))
         thin.lineWidth = 0.6
         thin.stroke()
+    }
+
+    // MARK: - Text boxes
+
+    private static func drawTextBox(_ box: TextBox, fontName: String) {
+        if box.showBorder {
+            let path = UIBezierPath(roundedRect: box.rect, cornerRadius: 6)
+            UIColor(white: 0.45, alpha: 1).setStroke()
+            path.lineWidth = 0.9
+            path.stroke()
+        }
+        let inner = box.showBorder ? box.rect.insetBy(dx: 8, dy: 5) : box.rect.insetBy(dx: 2, dy: 1)
+        TextDraw.draw(
+            box.text.components(separatedBy: "\n"),
+            in: inner,
+            font: BodyStyler.font(name: fontName, size: CGFloat(box.fontSize), bold: box.bold),
+            color: UIColor(hex: box.colorHex),
+            alignment: box.alignment.nsAlignment,
+            verticallyCentered: true,
+            shrinkToFit: true
+        )
     }
 
     // MARK: - Addressee

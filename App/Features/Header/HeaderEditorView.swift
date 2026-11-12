@@ -66,11 +66,16 @@ struct HeaderEditorView: View {
             }
 
             Section {
-                DatePicker("التاريخ", selection: $vm.report.header.date, displayedComponents: .date)
-                Picker("نوع التاريخ", selection: $vm.report.header.dateMode) {
-                    ForEach(DateMode.allCases) { Text($0.title).tag($0) }
+                Toggle("إظهار التاريخ", isOn: $vm.report.header.showDate)
+                if vm.report.header.showDate {
+                    DatePicker("التاريخ", selection: $vm.report.header.date, displayedComponents: .date)
+                    Picker("نوع التاريخ", selection: $vm.report.header.dateMode) {
+                        ForEach(DateMode.allCases) { Text($0.title).tag($0) }
+                    }
                 }
-                Toggle("إظهار اليوم", isOn: $vm.report.header.showDayName)
+                if vm.report.header.showDate {
+                    Toggle("إظهار اليوم", isOn: $vm.report.header.showDayName)
+                }
                 HeaderStripPreview(page: vm.firstBodyPhysicalPage, context: vm.renderContext)
                     .listRowInsets(EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8))
                 FontSizeSlider(
