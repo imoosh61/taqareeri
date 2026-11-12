@@ -172,6 +172,32 @@ final class ReportEditorViewModel: ObservableObject {
         }
     }
 
+    /// Logo box on the first page in A4 points (nil when the letterhead is hidden or there is no logo).
+    func logoBox() -> CGRect? {
+        guard report.header.logoPNG != nil, pagination.spec.hasHeader(bodyPage: 0) else { return nil }
+        return PageRenderer.logoBox(header: report.header, headerRect: pagination.spec.headerRect(bodyPage: 0))
+    }
+
+    /// Moves and/or resizes the logo (A4 points). Size changes keep the logo square.
+    func adjustLogo(move: CGSize, grow: CGFloat) {
+        guard let current = logoBox() else { return }
+        if grow != 0 {
+            let side = current.width + grow
+            let scale = Double(side / PageRenderer.defaultLogoSide)
+            report.header.logoScale = min(max(scale, HeaderInfo.logoScaleRange.lowerBound), HeaderInfo.logoScaleRange.upperBound)
+        }
+        // Keep the visible top-left corner where the user left it after resizing.
+        guard let resized = logoBox() else { return }
+        var offset = report.header.logoOffset
+        offset.width += move.width + (current.minX - resized.minX)
+        offset.height += move.height + (current.minY - resized.minY)
+        report.header.logoOffset = offset
+    }
+
+    func resetLogoPosition() {
+        report.header.logoOffset = .zero
+    }
+
     func removeLogo() {
         originalLogoData = nil
         report.header.logoPNG = nil

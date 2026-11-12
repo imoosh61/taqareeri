@@ -12,6 +12,7 @@ struct HeaderEditorView: View {
     @State private var templateName = ""
     @State private var confirmation: String?
     @State private var zoomPage: PageRef?
+    @State private var showLogoPlacement = false
 
     var body: some View {
         Form {
@@ -158,6 +159,9 @@ struct HeaderEditorView: View {
         .sheet(item: $zoomPage) { ref in
             PageZoomSheet(vm: vm, initialPage: ref.id)
         }
+        .fullScreenCover(isPresented: $showLogoPlacement) {
+            LogoPlacementEditor(vm: vm)
+        }
         .onChange(of: logoItem) { _, item in
             guard let item else { return }
             Task {
@@ -259,6 +263,21 @@ struct HeaderEditorView: View {
                     .environment(\.layoutDirection, .leftToRight)
                 }
                 .padding(.vertical, 4)
+            }
+
+            if vm.report.header.logoPNG != nil {
+                Button {
+                    vm.repaginate()
+                    showLogoPlacement = true
+                } label: {
+                    Label("تحريك الشعار بحرية", systemImage: "hand.draw")
+                }
+                .disabled(!vm.report.header.isEnabled)
+                if vm.report.header.logoOffset != .zero {
+                    Button("إرجاع الشعار للمنتصف", role: .destructive) {
+                        vm.resetLogoPosition()
+                    }
+                }
             }
 
             PhotosPicker(selection: $logoItem, matching: .images) {
@@ -391,5 +410,135 @@ struct HeaderStripPreview: View {
                 .clipped()
         }
         .aspectRatio(A4.size.width / visible, contentMode: .fit)
+    }
+}
+
+/// Drag the logo anywhere on the first page; drag the corner handle to resize it.
+struct LogoPlacementEditor: View {
+    @ObservedObject var vm: ReportEditorViewModel
+    @EnvironmentObject private var theme: ThemeStore
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var moveOffset: CGSize = .zero
+    @State private var growOffset: CGFloat = 0
+    @State private var isInteracting = false
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 10) {
+                Text("اسحب الشعار إلى المكان الذي تريده، واسحب الزاوية لتكبيره أو تصغيره.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal)
+
+                if let box = vm.logoBox() {
+                    GeometryReader { proxy in
+                        let pageWidth = min(proxy.size.width - 16, (proxy.size.height - 8) * A4.aspectRatio)
+                        let scale = pageWidth / A4.size.width
+                        let pageHeight = pageWidth / A4.aspectRatio
+
+                        ZStack(alignment: .topLeading) {
+                            A4PageView(page: vm.firstBodyPhysicalPage, context: vm.renderContext)
+                                .frame(width: pageWidth, height: pageHeight)
+                            handle(box, scale: scale)
+                        }
+                        .frame(width: pageWidth, height: pageHeight)
+                        .environment(\.layoutDirection, .leftToRight)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                    .padding(.horizontal, 8)
+
+                    nudgePad
+                } else {
+                    ContentUnavailableView("لا يوجد شعار ظاهر", systemImage: "photo",
+                                           description: Text("أضف شعاراً وفعّل الترويسة أولاً."))
+                }
+            }
+            .padding(.vertical, 8)
+            .background(Color(.systemGray5))
+            .navigationTitle("مكان الشعار")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("المنتصف") { vm.resetLogoPosition() }
+                        .disabled(vm.report.header.logoOffset == .zero)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("تم") { dismiss() }
+                }
+            }
+        }
+    }
+
+    private func handle(_ box: CGRect, scale: CGFloat) -> some View {
+        let side = max(box.width * scale + growOffset, 24)
+        return ZStack(alignment: .bottomTrailing) {
+            RoundedRectangle(cornerRadius: 6)
+                .fill(theme.accent.opacity(isInteracting ? 0.18 : 0.06))
+            RoundedRectangle(cornerRadius: 6)
+                .strokeBorder(theme.accent, style: StrokeStyle(lineWidth: 2, dash: isInteracting ? [] : [5, 3]))
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 1)
+                        .onChanged { value in
+                            isInteracting = true
+                            moveOffset = value.translation
+                        }
+                        .onEnded { value in
+                            vm.adjustLogo(move: CGSize(width: value.translation.width / scale,
+                                                       height: value.translation.height / scale), grow: 0)
+                            moveOffset = .zero
+                            isInteracting = false
+                        }
+                )
+            Circle()
+                .fill(theme.accent)
+                .frame(width: 28, height: 28)
+                .overlay(Image(systemName: "arrow.up.left.and.arrow.down.right").font(.caption.weight(.bold)).foregroundStyle(.white))
+                .offset(x: 10, y: 10)
+                .gesture(
+                    DragGesture(minimumDistance: 1)
+                        .onChanged { value in
+                            isInteracting = true
+                            growOffset = (value.translation.width + value.translation.height) / 2
+                        }
+                        .onEnded { value in
+                            let grow = (value.translation.width + value.translation.height) / 2
+                            vm.adjustLogo(move: .zero, grow: grow / scale)
+                            growOffset = 0
+                            isInteracting = false
+                        }
+                )
+        }
+        .frame(width: side, height: side)
+        .offset(x: box.minX * scale + moveOffset.width, y: box.minY * scale + moveOffset.height)
+    }
+
+    /// Fine positioning in 2-point steps.
+    private var nudgePad: some View {
+        HStack(spacing: 8) {
+            nudge("chevron.left") { vm.adjustLogo(move: CGSize(width: -2, height: 0), grow: 0) }
+            nudge("chevron.up") { vm.adjustLogo(move: CGSize(width: 0, height: -2), grow: 0) }
+            nudge("chevron.down") { vm.adjustLogo(move: CGSize(width: 0, height: 2), grow: 0) }
+            nudge("chevron.right") { vm.adjustLogo(move: CGSize(width: 2, height: 0), grow: 0) }
+            Divider().frame(height: 28)
+            nudge("minus.magnifyingglass") { vm.adjustLogo(move: .zero, grow: -4) }
+            nudge("plus.magnifyingglass") { vm.adjustLogo(move: .zero, grow: 4) }
+        }
+        .environment(\.layoutDirection, .leftToRight)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity)
+        .background(.bar)
+    }
+
+    private func nudge(_ icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 16, weight: .semibold))
+                .frame(width: 40, height: 40)
+        }
+        .buttonStyle(.bordered)
+        .buttonRepeatBehavior(.enabled)
     }
 }

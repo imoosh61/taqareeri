@@ -97,6 +97,17 @@ struct HeaderInfo: Codable, Equatable {
     var adminFontSizeValue: Double?
     var dateFontSizeValue: Double?
     var logoScaleValue: Double?
+    var logoOffsetXValue: Double?
+    var logoOffsetYValue: Double?
+
+    /// Free placement of the logo, in A4 points from its automatic (centered) position.
+    var logoOffset: CGSize {
+        get { CGSize(width: logoOffsetXValue ?? 0, height: logoOffsetYValue ?? 0) }
+        set {
+            logoOffsetXValue = newValue.width == 0 ? nil : Double(newValue.width)
+            logoOffsetYValue = newValue.height == 0 ? nil : Double(newValue.height)
+        }
+    }
     var adminOffsetValue: Double?
     var dateOffsetValue: Double?
     var adminAlignmentValue: ParagraphAlignment?

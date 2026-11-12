@@ -144,10 +144,30 @@ enum PageRenderer {
 
     // MARK: - Header
 
+    static let defaultLogoSide: CGFloat = 104
+
+    static func logoSide(_ header: HeaderInfo) -> CGFloat {
+        defaultLogoSide * CGFloat(header.logoScale)
+    }
+
+    /// Square box the logo is fitted into: centered in the letterhead (large logos grow downward),
+    /// then moved by the user's offset and kept on the page.
+    static func logoBox(header: HeaderInfo, headerRect rect: CGRect) -> CGRect {
+        let content = CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: rect.height - 14)
+        let side = logoSide(header)
+        let top = side > content.height ? content.minY : content.midY - side / 2
+        var box = CGRect(x: content.midX - side / 2, y: top, width: side, height: side)
+            .offsetBy(dx: header.logoOffset.width, dy: header.logoOffset.height)
+        let page = CGRect(origin: .zero, size: A4.size).insetBy(dx: 8, dy: 8)
+        box.origin.x = min(max(box.minX, page.minX), page.maxX - box.width)
+        box.origin.y = min(max(box.minY, page.minY), page.maxY - box.height)
+        return box
+    }
+
     static func drawHeader(report: Report, logo: UIImage?, in rect: CGRect, accent: UIColor) {
         let header = report.header
         let content = CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: rect.height - 14)
-        let logoSide = min(104 * CGFloat(header.logoScale), content.height + 30)
+        let logoSide = Self.logoSide(header)
         let gap: CGFloat = 10
         let columnWidth = (content.width - logoSide - gap * 2) / 2
 
@@ -186,9 +206,7 @@ enum PageRenderer {
         )
 
         if let logo {
-            // Larger logos grow downward past the header line rather than above the page edge.
-            let top = logoSide > content.height ? content.minY : content.midY - logoSide / 2
-            let box = CGRect(x: content.midX - logoSide / 2, y: top, width: logoSide, height: logoSide)
+            let box = logoBox(header: header, headerRect: rect)
             logo.draw(in: Geometry.aspectFit(logo.size, in: box))
         }
 
