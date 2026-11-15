@@ -1,7 +1,7 @@
 import SwiftUI
 import UIKit
 
-/// Home: two sections (reports / evidence forms), each a grid of cards showing the first page.
+/// Home: a grid of report cards showing each first page.
 struct HomeView: View {
     @EnvironmentObject private var store: ReportStore
     @EnvironmentObject private var templates: TemplateStore
@@ -11,12 +11,10 @@ struct HomeView: View {
     @State private var pendingDelete: Report?
     @State private var showFormPicker = false
     @State private var searchText = ""
-    @AppStorage("home.section") private var section: ReportKind = .text
 
     private var visibleReports: [Report] {
         let query = searchText.trimmed
         return store.reports.filter { report in
-            guard report.kind == section else { return false }
             guard !query.isEmpty else { return true }
             let haystack = [report.title, report.header.referenceNumber, report.addressee.recipientTitle,
                             report.addressee.recipientName] + report.pages.map(\.body.text)
@@ -30,17 +28,10 @@ struct HomeView: View {
         NavigationStack(path: $path) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    Picker("القسم", selection: $section) {
-                        ForEach(ReportKind.allCases) { Text($0.title).tag($0) }
-                    }
-                    .pickerStyle(.segmented)
-
                     Button(action: createReport) {
                         NewReportBanner(
-                            title: section == .text ? "تقرير جديد" : "نموذج شواهد جديد",
-                            subtitle: section == .text
-                                ? (templates.defaultTemplate.map { "بقالب «\($0.name)»" } ?? "اكتب مباشرة على صفحة A4")
-                                : "حقول وصور وQR وتوقيعات في صفحة واحدة",
+                            title: "تقرير جديد",
+                            subtitle: templates.defaultTemplate.map { "بقالب «\($0.name)»" } ?? "اكتب مباشرة على صفحة A4",
                             accent: theme.accent,
                             secondary: theme.secondary
                         )
@@ -51,9 +42,9 @@ struct HomeView: View {
                         ContentUnavailableView.search(text: searchText)
                     } else if visibleReports.isEmpty {
                         ContentUnavailableView(
-                            section == .text ? "لا توجد تقارير بعد" : "لا توجد نماذج بعد",
-                            systemImage: section == .text ? "doc.text" : "list.bullet.rectangle",
-                            description: Text(section == .text ? "اضغط «تقرير جديد» للبدء." : "اضغط «نموذج شواهد جديد» للبدء.")
+                            "لا توجد تقارير بعد",
+                            systemImage: "doc.text",
+                            description: Text("اضغط «تقرير جديد» للبدء.")
                         )
                         .padding(.top, 30)
                     } else {
@@ -165,12 +156,9 @@ struct HomeView: View {
     }
 
     private func createReport() {
-        if section == .form {
-            if FormTemplate.all.isEmpty {
-                createForm(.blank)
-            } else {
-                showFormPicker = true
-            }
+        // Workplace forms will appear here once added (FormTemplate.all).
+        if !FormTemplate.all.isEmpty {
+            showFormPicker = true
             return
         }
         let report = store.createReport(from: templates.defaultTemplate)
