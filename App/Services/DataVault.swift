@@ -149,6 +149,11 @@ enum TempFiles {
         FileManager.default.temporaryDirectory.appendingPathComponent("Exports", isDirectory: true)
     }
 
+    /// Removes earlier exported PDFs / images (called before each new export).
+    static func clearExports() {
+        try? FileManager.default.removeItem(at: exportsFolder)
+    }
+
     static func cleanup() {
         let fileManager = FileManager.default
         try? fileManager.removeItem(at: exportsFolder)

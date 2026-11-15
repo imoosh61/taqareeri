@@ -16,6 +16,7 @@ enum PDFExporter {
     static func export(_ snapshot: DocumentSnapshot) throws -> URL {
         let pageCount = snapshot.pageCount
         guard pageCount > 0 else { throw PDFExportError.emptyDocument }
+        TempFiles.clearExports()
 
         let format = UIGraphicsPDFRendererFormat()
         // Only the report title: no app or developer credits inside shared documents.
@@ -53,6 +54,7 @@ enum ImageExporter {
     static func export(_ snapshot: DocumentSnapshot) throws -> [URL] {
         let pageCount = snapshot.pageCount
         guard pageCount > 0 else { throw PDFExportError.emptyDocument }
+        TempFiles.clearExports()
         let folder = TempFiles.exportsFolder
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let base = PDFExporter.fileName(for: snapshot.report.title)

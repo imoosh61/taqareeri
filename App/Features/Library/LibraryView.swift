@@ -266,7 +266,7 @@ struct BackupView: View {
             }
         }
         .navigationTitle("النسخ الاحتياطي")
-        .sheet(item: $shareItem, onDismiss: TempFiles.cleanup) { item in
+        .sheet(item: $shareItem) { item in
             ShareSheet(items: [item.url])
         }
         .sheet(isPresented: $showCreate) {

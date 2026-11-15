@@ -135,10 +135,69 @@ struct ShareSheet: UIViewControllerRepresentable {
     let items: [Any]
 
     func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: items, applicationActivities: nil)
+        let urls = items.compactMap { $0 as? URL }
+        let printable = !urls.isEmpty && urls.count == items.count
+            && urls.allSatisfy { ["pdf", "jpg", "jpeg", "png"].contains($0.pathExtension.lowercased()) }
+        guard printable else {
+            return UIActivityViewController(activityItems: items, applicationActivities: nil)
+        }
+        // Our own print action: it loads the files into memory first, so printing never depends on
+        // the temporary files still being there, and a PDF is sent as a single document.
+        let controller = UIActivityViewController(activityItems: items, applicationActivities: [PrintActivity()])
+        controller.excludedActivityTypes = [.print]
+        return controller
     }
 
     func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
+}
+
+/// «طباعة» in the share sheet for exported PDF / images.
+final class PrintActivity: UIActivity {
+    private var pdfData: Data?
+    private var images: [UIImage] = []
+    private var jobName = "تقرير"
+
+    override class var activityCategory: UIActivity.Category { .action }
+    override var activityType: UIActivity.ActivityType? { UIActivity.ActivityType("com.imoosh61.officialreports.print") }
+    override var activityTitle: String? { "طباعة" }
+    override var activityImage: UIImage? { UIImage(systemName: "printer") }
+
+    override func canPerform(withActivityItems activityItems: [Any]) -> Bool {
+        UIPrintInteractionController.isPrintingAvailable && activityItems.contains { $0 is URL }
+    }
+
+    override func prepare(withActivityItems activityItems: [Any]) {
+        let urls = activityItems.compactMap { $0 as? URL }
+        jobName = urls.first?.deletingPathExtension().lastPathComponent ?? "تقرير"
+        if let pdf = urls.first(where: { $0.pathExtension.lowercased() == "pdf" }) {
+            pdfData = try? Data(contentsOf: pdf)
+        } else {
+            images = urls.compactMap { (try? Data(contentsOf: $0)).flatMap(UIImage.init(data:)) }
+        }
+    }
+
+    override func perform() {
+        let pdfData = pdfData
+        let images = images
+        let jobName = jobName
+        activityDidFinish(pdfData != nil || !images.isEmpty)
+        // Present after the share sheet has gone away.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            let printer = UIPrintInteractionController.shared
+            let info = UIPrintInfo.printInfo()
+            info.jobName = jobName
+            info.outputType = pdfData != nil ? .general : .photo
+            printer.printInfo = info
+            if let pdfData {
+                printer.printingItem = pdfData
+            } else if images.count == 1 {
+                printer.printingItem = images[0]
+            } else {
+                printer.printingItems = images
+            }
+            printer.present(animated: true)
+        }
+    }
 }
 
 /// Checkerboard used behind transparent images (logo, stamp, signature) to show removed background.

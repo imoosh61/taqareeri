@@ -77,7 +77,7 @@ struct ReportEditorView: View {
             }
         }
         .sheet(item: $sheet) { item in sheetContent(item) }
-        .sheet(item: $shareItem, onDismiss: TempFiles.cleanup) { item in
+        .sheet(item: $shareItem) { item in
             ShareSheet(items: item.urls)
         }
         .confirmationDialog("حذف الصفحة \(ArabicFormat.number(vm.visiblePageIndex + 1, vm.report.page.numerals))؟",
