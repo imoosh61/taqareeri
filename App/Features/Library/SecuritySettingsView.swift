@@ -4,6 +4,8 @@ import SwiftUI
 struct SecuritySettingsView: View {
     @EnvironmentObject private var lock: AppLock
     @AppStorage(AISettings.consentKey) private var aiConsent = false
+    @AppStorage(GuardState.strictKey) private var strictMode = false
+    @EnvironmentObject private var guardState: GuardState
 
     var body: some View {
         Form {
@@ -21,6 +23,17 @@ struct SecuritySettingsView: View {
                 Text("القفل")
             } footer: {
                 Text("يُطلب التحقق عند فتح التطبيق وعند الرجوع إليه. ويُخفى محتوى التقارير دائماً في شاشة تبديل التطبيقات.")
+            }
+
+            Section {
+                Label(guardState.result.isSafe ? "الجهاز سليم" : "بيئة غير آمنة: " + guardState.result.reasons.joined(separator: "، "),
+                      systemImage: guardState.result.isSafe ? "checkmark.shield.fill" : "exclamationmark.shield.fill")
+                    .foregroundStyle(guardState.result.isSafe ? .green : .red)
+                Toggle("منع التشغيل على الأجهزة غير الآمنة", isOn: $strictMode)
+            } header: {
+                Text("فحص الجهاز")
+            } footer: {
+                Text("يفحص التطبيق عند فتحه: كسر الحماية (Jailbreak)، وأدوات التصحيح، ومكتبات الحقن. بدون المنع يظهر تحذير فقط ويمكنك المتابعة.")
             }
 
             Section("حماية بياناتك") {
